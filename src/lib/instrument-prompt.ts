@@ -70,6 +70,8 @@ export const buildInstrumentPrompt = (input: InstrumentPromptInput): string => {
     ``,
     `## 4. Keep it bounded`,
     ``,
-    `Touch only what wiring requires (entry point + config). Do not refactor unrelated code. Show the diff. Do not commit — the human reviews and commits.`,
+    `Touch only what wiring requires (entry point + config). Do not refactor unrelated code. Show the diff and stop.`,
+    ``,
+    `**Do not run \`git commit\`, \`git push\`, or any other git command that writes or publishes** — leave every change uncommitted in the working tree. The human reviews the diff and commits it themselves. Reading git state (\`git status\`, \`git diff\`) is fine.`,
   ].join("\n");
 };
