@@ -119,7 +119,7 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
         "`glassray setup` needs a browser to finish first-time onboarding — there's no fully headless first run.",
         EXIT.FAILURE,
         "onboarding-needs-browser",
-        `Finish onboarding once where you can open a browser — run \`glassray setup\` there, or open ${appUrl} and complete it. After that, CI can wire traces headlessly with \`glassray instrument --prompt-only\` then \`glassray verify --wait\` (both take \`--api-key\`). Agents on the MCP server can instead create a source with the connect_otlp_source / connect_pull_source tools (not CLI commands).`,
+        `Finish onboarding once where you can open a browser — run \`glassray setup\` there, or open ${appUrl} and complete it. After that CI can re-run \`glassray setup --api-key\`: it finishes locally without a browser — minting the ingest key into .env.local on the SDK path, or just verifying an existing-provider source. (\`instrument --prompt-only\` / \`verify --wait\` alone can't: neither creates a source or mints a key.) Agents on the MCP server can instead create a source with the connect_otlp_source / connect_pull_source tools (not CLI commands).`,
       );
     }
     const wizardUrl = `${appUrl}/api/setup/enter?org=${encodeURIComponent(cred.organizationId)}&src=cli`;
@@ -192,12 +192,21 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
       ]);
       // Offer to save it into the repo's env file — writes ONLY if you say yes.
       const envFile = detectEnvFile(process.cwd());
-      const save = interactive ? await confirm(`Save ${INGEST_KEY_ENV_VAR} to ${envFile}?`) : true;
-      if (save) {
-        const written = upsertEnvFile(process.cwd(), INGEST_KEY_ENV_VAR, res.ingestKey, envFile);
-        success(`Saved to ${written.file} ${dim("(gitignored — your SDK reads it from here)")}`);
+      if (envFile === null) {
+        // The only `.env.local` is git-tracked — auto-saving would commit the
+        // secret, and `.gitignore` can't un-track it. The key is shown above, so
+        // surface it instead of writing (this is the non-interactive path too).
+        warn(
+          `not auto-saving ${INGEST_KEY_ENV_VAR} — your .env.local is git-tracked (a committed secret can't be un-tracked). Run \`git rm --cached .env.local\` + gitignore it, or set ${INGEST_KEY_ENV_VAR} yourself.`,
+        );
       } else {
-        detail(`no problem — pop ${INGEST_KEY_ENV_VAR} into your env yourself and you're set`);
+        const save = interactive ? await confirm(`Save ${INGEST_KEY_ENV_VAR} to ${envFile}?`) : true;
+        if (save) {
+          const written = upsertEnvFile(process.cwd(), INGEST_KEY_ENV_VAR, res.ingestKey, envFile);
+          success(`Saved to ${written.file} ${dim("(gitignored — your SDK reads it from here)")}`);
+        } else {
+          detail(`no problem — pop ${INGEST_KEY_ENV_VAR} into your env yourself and you're set`);
+        }
       }
     } else {
       // Idempotent retry (or a source minted elsewhere): the key can't be re-shown.

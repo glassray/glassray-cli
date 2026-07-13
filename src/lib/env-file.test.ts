@@ -33,6 +33,20 @@ describe("env-file", () => {
     expect(detectEnvFile(dir)).toBe(".env.local");
   });
 
+  it("returns null when the only .env.local is git-tracked (no safe target for the secret)", () => {
+    const git = (args: string[]): number =>
+      spawnSync("git", args, { cwd: dir, stdio: "ignore" }).status ?? 1;
+    if (git(["init"]) !== 0) return; // no git available → skip
+    git(["config", "user.email", "t@t.dev"]);
+    git(["config", "user.name", "t"]);
+    writeFileSync(path.join(dir, ".env.local"), "BAR=2\n");
+    git(["add", ".env.local"]);
+    git(["commit", "-m", "add env.local"]);
+    // A committed .env.local can't be un-tracked by a .gitignore add, and there's
+    // no safe fallback → null, so the caller shows the key instead of writing it.
+    expect(detectEnvFile(dir)).toBeNull();
+  });
+
   it("writes the key, preserves other lines, and gitignores the file", () => {
     writeFileSync(path.join(dir, ".env.local"), "EXISTING=keep\n");
     const res = upsertEnvFile(dir, "GLASSRAY_API_KEY", "glr_abc", ".env.local");

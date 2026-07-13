@@ -40,15 +40,20 @@ const formatValue = (value: string): string =>
   /^[A-Za-z0-9_./:@%+=-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
 
 /**
- * Which env file to write the ingest secret into: an existing `.env.local`,
- * else an existing `.env` — but ONLY if it's not git-tracked (a committed `.env`
- * would stage the secret, and the `.gitignore` add can't untrack it) — else
- * `.env.local`, which is the gitignored convention.
+ * Which env file to write the ingest secret into: an existing UNTRACKED
+ * `.env.local`, else an existing UNTRACKED `.env`, else a fresh `.env.local`
+ * (the gitignored convention). A git-tracked dotenv file is NEVER chosen — a
+ * committed/staged secret can't be un-tracked by the later `.gitignore` add, so
+ * it would leak. Returns `null` when the only candidate is a tracked `.env.local`
+ * (no safe target): the caller must surface the key instead of auto-writing it.
  */
-export const detectEnvFile = (cwd: string): string => {
-  if (existsSync(path.join(cwd, ".env.local"))) return ".env.local";
+export const detectEnvFile = (cwd: string): string | null => {
+  const localExists = existsSync(path.join(cwd, ".env.local"));
+  if (localExists && !isGitTracked(cwd, ".env.local")) return ".env.local";
   if (existsSync(path.join(cwd, ".env")) && !isGitTracked(cwd, ".env")) return ".env";
-  return ".env.local";
+  // Reached only when `.env.local` is absent (→ create fresh, safe) or exists but
+  // is git-tracked (→ no safe target).
+  return localExists ? null : ".env.local";
 };
 
 /** Upsert `KEY=value` into `<cwd>/<filename>` (default `.env.local`), preserving other lines; ensures it's gitignored. */
