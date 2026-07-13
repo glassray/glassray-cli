@@ -55,8 +55,8 @@ glassray detect                Inspect the repo: framework, tracing, provider ke
 glassray connect <target>      Open the dashboard settings page for a source/integration in your
                                browser: otlp · langsmith · langfuse · posthog · slack · github
 glassray instrument            Add the SDK + tags; shows the prompt (copied to clipboard) and
-                               offers to run Claude Code (sandboxed: @glassray installs only,
-                               never commits/pushes). Flags: --run, --prompt-only
+                               offers to run Claude Code (headless, live progress; never
+                               commits/pushes — you review the diff). Flags: --run, --prompt-only
 glassray verify                The exit gate: poll until a real trace lands
 glassray status                Cloud account summary: sources, health, GitHub/Slack
 ```

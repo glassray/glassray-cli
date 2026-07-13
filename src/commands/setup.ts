@@ -116,7 +116,7 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     // (CI / no browser) cannot drive it. Point such callers at the subcommands.
     if (!interactive) {
       throw new CliError(
-        "`glassray setup` needs a browser to finish onboarding. Complete it in the dashboard, or in CI use the individual commands (`connect` / `instrument` / `verify`) with --api-key.",
+        "`glassray setup` needs a browser to finish onboarding — complete it in the dashboard. For CI, connect a source with the `connect_otlp_source` / `connect_pull_source` MCP tools, then run `glassray instrument --prompt-only` and `glassray verify --wait` (both take `--api-key`).",
       );
     }
     const wizardUrl = `${appUrl}/api/setup/enter?org=${encodeURIComponent(cred.organizationId)}&src=cli`;
