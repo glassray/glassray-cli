@@ -13,12 +13,27 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "n
 import os from "node:os";
 import path from "node:path";
 
-/** Default Glassray deployment when neither `--endpoint` nor `GLASSRAY_ENDPOINT` is set. */
+/** Default Glassray deployment when neither `--endpoint` nor `GLASSRAY_APP_URL` is set. */
 export const DEFAULT_ENDPOINT = "https://app.glassray.ai";
 
-/** Resolve the endpoint: `--endpoint` flag > `GLASSRAY_ENDPOINT` env > default. Trailing slash trimmed. */
+/**
+ * Resolve the endpoint: `--endpoint` flag > `GLASSRAY_APP_URL` env >
+ * `GLASSRAY_ENDPOINT` (deprecated) > default. Trailing slash trimmed.
+ *
+ * `GLASSRAY_ENDPOINT` is the tracing SDK's INGEST endpoint — a shell wired to
+ * send traces to a local Coach (`GLASSRAY_ENDPOINT=http://127.0.0.1:5899`)
+ * would silently repoint every cloud command there. It stays as a fallback so
+ * existing setups keep working, but warns toward `GLASSRAY_APP_URL`.
+ */
 export const resolveEndpoint = (flag?: string): string => {
-  const raw = flag ?? process.env.GLASSRAY_ENDPOINT ?? DEFAULT_ENDPOINT;
+  const appUrl = process.env.GLASSRAY_APP_URL;
+  const legacy = process.env.GLASSRAY_ENDPOINT;
+  if (flag === undefined && appUrl === undefined && legacy !== undefined) {
+    process.stderr.write(
+      "! GLASSRAY_ENDPOINT is deprecated for the CLI — it collides with the tracing SDK's ingest endpoint. Use GLASSRAY_APP_URL.\n",
+    );
+  }
+  const raw = flag ?? appUrl ?? legacy ?? DEFAULT_ENDPOINT;
   return raw.replace(/\/+$/, "");
 };
 
