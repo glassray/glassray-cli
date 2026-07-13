@@ -7,9 +7,10 @@
 One CLI for [Glassray](https://glassray.ai): cloud setup **and** the local Coach experience.
 
 Run `glassray setup` in your agent's repo and go from nothing to a **verified, watched
-account**. It pairs your credentials (one browser click), wires trace ingestion, applies the
-metadata convention, and connects GitHub and Slack. Then it does the thing most setup tools
-skip: it confirms a real, correctly-tagged trace has landed in Glassray before it returns.
+account**. It's a launcher: it signs you in, hands the connecting — GitHub, traces, Slack — to a
+quick **browser wizard**, mirrors each step back to your terminal, then wires the tracing SDK
+into your code locally. It does the thing most setup tools skip: it confirms a real,
+correctly-tagged trace has landed in Glassray before it returns.
 
 The same binary also runs the local, try-before-cloud
 [Coach](https://glassray.ai/docs/coach/overview) (`glassray start` plus the data verbs). Local
@@ -26,11 +27,10 @@ npm i -g @glassray/cli             # or install it, for `glassray` on your PATH
 glassray setup
 ```
 
-`setup` is the orchestrator. It runs every step in order, each one idempotent, ending at the
-verify gate. You do exactly two things in a browser: approve the pairing, and click the
-GitHub/Slack consent screens. Everything else is automatic. Re-running is always safe, because
-each step checks current state and skips what's done, so _"just run it again"_ is the universal
-recovery.
+`setup` is a launcher, not a terminal orchestrator: it opens the browser onboarding wizard
+(GitHub · traces · Slack), polls until you finish, then does the one local step — wiring the SDK
+— and the verify gate. First-time onboarding needs a browser; re-runs skip the wizard once it's
+done, so _"just run it again"_ is the universal recovery, with no duplicate orgs or sources.
 
 Nothing of your source code transits Glassray. The CLI edits files locally (or hands a prompt to
 your own Claude Code) and talks to the API only over HTTPS.
@@ -47,11 +47,13 @@ Run `glassray --help` for the branded reference, or `glassray <command> --help` 
 **Set up (cloud)**
 
 ```
-glassray setup                 Orchestrator: pair, detect, connect, instrument, verify
+glassray setup                 Launcher: sign in → browser wizard (GitHub · traces · Slack) →
+                               mirror status → wire the SDK locally → verify
 glassray login / logout        Pair this machine (browser device grant), or clear the stored credential
 glassray whoami                Which org and user the active key resolves to
 glassray detect                Inspect the repo: framework, tracing, provider keys
-glassray connect <target>      otlp · langsmith · langfuse · posthog · github · slack
+glassray connect <target>      Trace sources (advanced/CI): otlp · langsmith · langfuse · posthog
+                               (GitHub / Slack are connected in the setup wizard)
 glassray instrument            Add the SDK + tags; shows the prompt (copied to clipboard) and
                                offers to run Claude Code (sandboxed: @glassray installs only,
                                never commits/pushes). Flags: --run, --prompt-only
@@ -106,9 +108,10 @@ check.
 
 > **`GLASSRAY_TOKEN` vs `GLASSRAY_API_KEY`.** `GLASSRAY_TOKEN` is the CLI's own **org key** (it
 > carries `mcp:read` + `mcp:write` and resolves your account). It is deliberately **distinct**
-> from `GLASSRAY_API_KEY`, the SDK's per-source **ingest key** that the CLI writes into your
-> repo's `.env.local`, so a shell that exports one can never be mistaken for the other. The CLI
-> _reads_ `GLASSRAY_TOKEN`; it only ever _writes_ `GLASSRAY_API_KEY`.
+> from `GLASSRAY_API_KEY`, the SDK's per-source **ingest key** that the CLI can write into your
+> repo's env file (`.env.local` or `.env`, gitignored — `setup` shows it and asks first), so a
+> shell that exports one can never be mistaken for the other. The CLI _reads_ `GLASSRAY_TOKEN`; it
+> only ever _writes_ `GLASSRAY_API_KEY`.
 
 **Output discipline.** stdout is data (JSON and cards); stderr is status. Exit codes: `0` ok,
 `1` handled failure, `2` a dependency was unreachable. Non-TTY sessions never prompt, and every

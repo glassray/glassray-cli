@@ -1,7 +1,7 @@
 /**
- * `.env.local` upserts. Sets a single key without clobbering the rest of the
- * file, and makes sure the file is gitignored (the CLI never commits — it only
- * guards the human from committing a secret). See docs/onboarding-wizard.md §3.
+ * Env-file upserts (`.env.local` or `.env`). Sets a single key without
+ * clobbering the rest of the file, and makes sure the file is gitignored (the
+ * CLI never commits — it only guards the human from committing a secret).
  */
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -26,9 +26,21 @@ export interface EnvUpsertResult {
 const formatValue = (value: string): string =>
   /^[A-Za-z0-9_./:@%+=-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
 
-/** Upsert `KEY=value` into `<cwd>/.env.local`, preserving other lines; ensures it's gitignored. */
-export const upsertEnvLocal = (cwd: string, key: string, value: string): EnvUpsertResult => {
-  const file = path.join(cwd, ".env.local");
+/** Which env file to write into: an existing `.env.local`, else an existing `.env`, else `.env.local`. */
+export const detectEnvFile = (cwd: string): string => {
+  if (existsSync(path.join(cwd, ".env.local"))) return ".env.local";
+  if (existsSync(path.join(cwd, ".env"))) return ".env";
+  return ".env.local";
+};
+
+/** Upsert `KEY=value` into `<cwd>/<filename>` (default `.env.local`), preserving other lines; ensures it's gitignored. */
+export const upsertEnvFile = (
+  cwd: string,
+  key: string,
+  value: string,
+  filename = ".env.local",
+): EnvUpsertResult => {
+  const file = path.join(cwd, filename);
   const line = `${key}=${formatValue(value)}`;
   let unchanged = false;
 
@@ -57,7 +69,7 @@ export const upsertEnvLocal = (cwd: string, key: string, value: string): EnvUpse
     writeFileSync(file, `${lines.join("\n").replace(/\n*$/, "")}\n`, { mode: 0o600 });
     chmodSync(file, 0o600);
   }
-  const gitignoreUpdated = ensureGitignored(cwd, ".env.local");
+  const gitignoreUpdated = ensureGitignored(cwd, filename);
   return { file, unchanged, gitignoreUpdated };
 };
 

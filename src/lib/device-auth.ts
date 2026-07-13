@@ -3,13 +3,13 @@
  * fetch. Starts a device authorization, prints the user code + opens the hosted
  * approval page (always printing the URL for headless sessions), then polls the
  * token endpoint honoring `interval` / `slow_down` until the user approves or the
- * code expires. See docs/onboarding-wizard.md §3.
+ * code expires.
  */
 import { openBrowser } from "./browser.js";
 import { CliError } from "./errors.js";
 import { authorizeDevice, pollDeviceToken } from "./http.js";
 import type { SetupConfigResponse } from "./types.js";
-import { bold, detail, info, link, MODE_ERR, PALETTE, paintErr, spinner } from "./ui.js";
+import { bold, detail, info, link, MODE_ERR, spinner } from "./ui.js";
 
 /**
  * Default Glassray auth-service base — the branded Authentication API domain, so
@@ -106,6 +106,6 @@ export const runDeviceAuth = async (
           `device authentication failed: ${token.error_description ?? token.error ?? "unknown"}`,
         );
     }
-    spin.update(`waiting for approval… ${paintErr(`(polling every ${interval}s)`, PALETTE.muted)}`);
+    spin.update("waiting for you to approve in your browser…");
   }
 };

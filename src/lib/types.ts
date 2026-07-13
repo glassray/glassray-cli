@@ -1,12 +1,8 @@
 /**
- * The Glassray public REST contract, defined LOCALLY as plain TypeScript.
- *
- * Canonical source: docs/onboarding-wizard.md §4 — kept in sync by hand; the CLI
- * stays dependency-free for extraction to a public repo. Do NOT import these from
- * `@helix/shared` (or any workspace package): the `glassray` package must be
- * liftable into its own public repo with zero changes, so its only couplings are
- * runtime boundaries (HTTP to the Glassray API, shelling out to
- * `npx @glassray/coach`).
+ * The Glassray public REST contract, defined LOCALLY as plain TypeScript so this
+ * package stays dependency-free and self-contained — its only couplings are
+ * runtime boundaries (HTTPS to the Glassray API, and shelling out to
+ * `npx @glassray/coach`). Kept in sync with the API by hand.
  */
 
 /** `GET /api/public/setup/config` — WorkOS coordinates the CLI needs to run the device flow. */
@@ -116,6 +112,14 @@ export interface SetupStatusResponse {
   recentTraceCount: number;
   github: SetupConnectionState;
   slack: SetupConnectionState;
+  /** Whether the browser onboarding wizard is finished — the terminal's "wizard complete" poll signal (v3). */
+  onboardingCompleted: boolean;
+  /**
+   * The trace path the wizard settled on. `otlp` (SDK push) or `none` (skipped)
+   * → the terminal wires the SDK (`instrument`) + verifies; `pull` (existing
+   * langfuse/langsmith/posthog source) → the terminal just verifies.
+   */
+  tracePath: "otlp" | "pull" | "none";
 }
 
 /**

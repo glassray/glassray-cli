@@ -1,22 +1,20 @@
 /**
- * `glassray connect <target>` — wire a trace source or an integration:
+ * `glassray connect <target>` — wire a trace source (the advanced/CI path;
+ * `glassray setup` does this for you):
  *   otlp                          push source (SDK/OTLP); writes the ingest key to .env.local
  *   langsmith | langfuse | posthog  pull source (provider keys → Vault, server-side)
- *   github | slack                deep-link consent; `--wait` polls status to connected
  *
- * OTLP/pull hit the REST API with the org key; github/slack open a browser
- * hand-off and always print the URL too (SSH-safe). See docs/onboarding-wizard.md.
+ * All hit the REST API with the org key. GitHub and Slack are connected in the
+ * browser onboarding wizard (v3), not here.
  */
 import path from "node:path";
 import { resolveApiKey } from "../lib/config.js";
-import { boolFlag, parseCommand, resolveTimeoutSec, strFlag, type Context } from "../lib/context.js";
+import { boolFlag, parseCommand, strFlag, type Context } from "../lib/context.js";
 import { CliError } from "../lib/errors.js";
-import { openBrowser } from "../lib/browser.js";
-import { readDotenvValues, upsertEnvLocal } from "../lib/env-file.js";
-import { connectOtlp, connectPull, getConfig, getStatus } from "../lib/http.js";
-import { pollUntil } from "../lib/poll.js";
-import type { ConnectPullRequest, PullProvider, SetupStatusResponse } from "../lib/types.js";
-import { bullet, card, detail, dim, info, link, printData, spinner, success } from "../lib/ui.js";
+import { detectEnvFile, readDotenvValues, upsertEnvFile } from "../lib/env-file.js";
+import { connectOtlp, connectPull } from "../lib/http.js";
+import type { ConnectPullRequest, PullProvider } from "../lib/types.js";
+import { bullet, card, dim, link, printData, spinner } from "../lib/ui.js";
 
 /** The env var the ingest key is written under in `.env.local` (consumed by the SDK exporter). */
 export const INGEST_KEY_ENV_VAR = "GLASSRAY_API_KEY";
@@ -45,9 +43,9 @@ const connectOtlpCmd = async (ctx: Context, args: string[]): Promise<void> => {
       : `Ready to receive traces for "${displayName}"`,
   );
 
-  // On an idempotent retry the key can't be re-shown — leave `.env.local` alone.
+  // On an idempotent retry the key can't be re-shown — leave the env file alone.
   const written = res.ingestKey
-    ? upsertEnvLocal(process.cwd(), INGEST_KEY_ENV_VAR, res.ingestKey)
+    ? upsertEnvFile(process.cwd(), INGEST_KEY_ENV_VAR, res.ingestKey, detectEnvFile(process.cwd()))
     : null;
 
   if (ctx.json) {
@@ -147,78 +145,6 @@ const connectPullCmd = async (ctx: Context, provider: PullProvider, args: string
   ]);
 };
 
-/** A browser hand-off integration (github/slack): its deep-link and the status field to watch. */
-interface Integration {
-  label: string;
-  /** Build the consent deep-link from the deployment's app URL. */
-  deepLink: (appUrl: string) => string;
-  /** Read the connection state from a status payload. */
-  read: (status: SetupStatusResponse) => "connected" | "not_connected";
-}
-
-/** The two browser-consent integrations. */
-const INTEGRATIONS: Record<"github" | "slack", Integration> = {
-  github: {
-    label: "GitHub",
-    deepLink: (appUrl) => `${appUrl}/api/github/connect`,
-    read: (s) => s.github,
-  },
-  slack: {
-    label: "Slack",
-    deepLink: (appUrl) => `${appUrl}/connect/slack`,
-    read: (s) => s.slack,
-  },
-};
-
-/** `connect github|slack` — open the consent deep-link; `--wait` polls status to connected. */
-const connectIntegrationCmd = async (
-  ctx: Context,
-  which: "github" | "slack",
-  args: string[],
-): Promise<void> => {
-  const { values } = parseCommand(args, {
-    wait: { type: "boolean" },
-    "no-open": { type: "boolean" },
-    timeout: { type: "string" },
-  });
-  const key = requireOrgKey(ctx);
-  const integration = INTEGRATIONS[which];
-  const config = await getConfig(ctx.endpoint);
-  const url = integration.deepLink(config.appUrl);
-
-  // Already connected? Skip the hand-off.
-  const current = await getStatus(ctx.endpoint, key);
-  if (integration.read(current) === "connected") {
-    if (ctx.json) printData({ integration: which, state: "connected", changed: false });
-    else success(`${integration.label} already connected`);
-    return;
-  }
-
-  if (!boolFlag(values, "no-open")) openBrowser(url);
-  info(`→ ${integration.label}: ${link(url)}`);
-  detail("approve in the browser (or open that URL on any device)");
-
-  if (!boolFlag(values, "wait")) {
-    if (ctx.json) printData({ integration: which, deepLink: url, state: "not_connected" });
-    return;
-  }
-
-  const timeoutSec = resolveTimeoutSec(values, 180);
-  const spin = spinner(`waiting for ${integration.label} to connect…`);
-  const result = await pollUntil(
-    () => getStatus(ctx.endpoint, key),
-    (s) => integration.read(s) === "connected",
-    { timeoutSec, onTick: (_s, elapsed) => spin.update(`waiting for ${integration.label}… (${elapsed}s)`) },
-  );
-  if (result.satisfied) {
-    spin.succeed(`${integration.label} connected`);
-    if (ctx.json) printData({ integration: which, state: "connected", changed: true });
-  } else {
-    spin.fail(`${integration.label} not connected within ${timeoutSec}s — re-open ${url} or run \`glassray status\``);
-    throw new CliError(`${integration.label} did not connect in time`);
-  }
-};
-
 /** The `connect` command dispatcher. */
 export const cmdConnect = async (ctx: Context, args: string[]): Promise<void> => {
   const target = args[0];
@@ -230,14 +156,11 @@ export const cmdConnect = async (ctx: Context, args: string[]): Promise<void> =>
     case "langfuse":
     case "posthog":
       return connectPullCmd(ctx, target, rest);
-    case "github":
-    case "slack":
-      return connectIntegrationCmd(ctx, target, rest);
     default:
       throw new CliError(
         target === undefined
-          ? "usage: glassray connect otlp|langsmith|langfuse|posthog|github|slack"
-          : `unknown connect target "${target}" — expected otlp|langsmith|langfuse|posthog|github|slack`,
+          ? "usage: glassray connect otlp|langsmith|langfuse|posthog"
+          : `unknown connect target "${target}" — expected otlp|langsmith|langfuse|posthog (GitHub / Slack are connected in the setup wizard)`,
       );
   }
 };

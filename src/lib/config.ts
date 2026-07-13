@@ -7,7 +7,7 @@
  * env var overrides the stored key. `GLASSRAY_TOKEN` is deliberately DISTINCT
  * from the SDK's `GLASSRAY_API_KEY` (the per-source ingest key written into a
  * repo's `.env.local`) so a shell that exports the ingest key can't be mistaken
- * for the org key here. See docs/onboarding-wizard.md §3.
+ * for the org key here.
  */
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import os from "node:os";

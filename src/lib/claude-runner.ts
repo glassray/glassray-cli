@@ -16,7 +16,7 @@
  *   ONLY installs of the `@glassray` npm scope, and deny git writes.
  *
  * Rule precedence is deny → allow, so the git-deny beats acceptEdits, the
- * allow-list, AND interactive approval in every mode. See docs/onboarding-wizard.md §2.
+ * allow-list, AND interactive approval in every mode.
  */
 import { spawn, spawnSync } from "node:child_process";
 

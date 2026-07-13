@@ -6,7 +6,6 @@
  * `claude` binary is present — offers to run it for you. `--run` skips the
  * question and runs Claude Code; `--prompt-only` always just prints.
  */
-import readline from "node:readline/promises";
 import { parseCommand, strFlag, boolFlag, type Context } from "../lib/context.js";
 import { hasClaude, runClaude } from "../lib/claude-runner.js";
 import { copyToClipboard } from "../lib/clipboard.js";
@@ -14,6 +13,7 @@ import { detect } from "../lib/detect.js";
 import { CliError } from "../lib/errors.js";
 import { getConfig } from "../lib/http.js";
 import { buildInstrumentPrompt } from "../lib/instrument-prompt.js";
+import { confirm } from "../lib/prompt.js";
 import { INGEST_KEY_ENV_VAR } from "./connect.js";
 import { detail, dim, info, printData, spinner, success, warn } from "../lib/ui.js";
 
@@ -22,14 +22,6 @@ const resolveOtlpEndpoint = async (ctx: Context, flag: string | undefined): Prom
   if (flag) return flag;
   const config = await getConfig(ctx.endpoint);
   return `${config.appUrl.replace(/\/+$/, "")}/api/public/otel/v1/traces`;
-};
-
-/** Ask a yes/no question on stderr, defaulting to NO. Only called on a TTY. */
-const askYesNo = async (question: string): Promise<boolean> => {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-  const answer = (await rl.question(`  ${question} [y/N] `)).trim().toLowerCase();
-  rl.close();
-  return answer === "y" || answer === "yes";
 };
 
 /** Show the prompt: copy it to the clipboard (best-effort) and print it to stdout for pasting. */
@@ -125,7 +117,7 @@ export const performInstrument = async (opts: {
   // Interactive: default to handing over the prompt; offer to run Claude Code.
   if (process.stdin.isTTY) {
     info("Time to add tracing to your code. I can run Claude Code for you, or give you the prompt to run yourself.");
-    if (await askYesNo("Run Claude Code now?")) {
+    if (await confirm("Run Claude Code now?", false)) {
       await runWithClaude(opts.prompt, opts.cwd, opts.json, true);
     } else {
       showPrompt(opts.prompt, opts.json);

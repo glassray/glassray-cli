@@ -202,24 +202,25 @@ run's `stats.judgeModel` records what scored it).
 
 ## 8 · Cloud setup (the same binary)
 
-The `glassray` CLI is also the cloud onboarding surface. Every step is a discrete,
-idempotent, `--json`-speaking command — prefer driving them directly over one big
-`setup` when you want control. All cloud commands accept `--json` (machine output on
-stdout, status on stderr) and `--endpoint <url>`; the org key is read from
-`GLASSRAY_API_KEY` or the stored credential (`glassray login`).
+The `glassray` CLI is also the cloud onboarding surface. `glassray setup` is a **launcher**:
+it opens the browser onboarding wizard (GitHub · traces · Slack) and, once that's done, wires
+the SDK locally + verifies. The granular commands below are the headless/CI path — drive them
+directly with an org key when you want control. All cloud commands accept `--json` (machine
+output on stdout, status on stderr) and `--endpoint <url>`; the org key is read from
+`GLASSRAY_TOKEN` or the stored credential (`glassray login`), and is distinct from the SDK's
+`GLASSRAY_API_KEY` ingest key.
 
 | Command | Notes |
 | --- | --- |
-| `glassray login` | Device-grant pairing → stores an org API key. `--api-key` / `GLASSRAY_API_KEY` skips it. |
-| `glassray status --json` | Sources + health, GitHub/Slack, traces-landed counts — poll this to decide what's left. |
+| `glassray login` | Device-grant pairing → stores an org API key. `--api-key` / `GLASSRAY_TOKEN` skips it. |
+| `glassray status --json` | Sources + health, GitHub/Slack, `onboardingCompleted`, `tracePath`, traces-landed counts — poll this to decide what's left. |
 | `glassray detect --json` | Repo inspection: framework, package manager, existing tracing, provider env keys, recommended path. |
-| `glassray connect otlp` | Create a push (SDK/OTLP) source; writes the ingest key to `.env.local`. |
-| `glassray connect langsmith\|langfuse\|posthog [--keys-from-env]` | Connect a pull source (keys → Vault, server-side). |
-| `glassray connect github\|slack [--wait]` | Print the consent deep-link; `--wait` polls status to connected. |
-| `glassray instrument [--prompt-only]` | Emit the SDK-wiring + 4-tag prompt (runs `claude -p`, or prints it). |
+| `glassray connect otlp` | Create a push (SDK/OTLP) source; writes the ingest key to your env file (`.env.local` or `.env`). |
+| `glassray connect langsmith\|langfuse\|posthog [--keys-from-env]` | Connect a pull source (keys → Vault, server-side). GitHub / Slack are connected in the setup wizard, not via `connect`. |
+| `glassray instrument [--run\|--prompt-only]` | Add the SDK + 4 tags. Shows the prompt (clipboard) and offers to run Claude Code — sandboxed (`@glassray` installs only, never commits/pushes); `--run` runs it, `--prompt-only` prints. |
 | `glassray verify --wait` | The exit gate: poll `status` until a real trace lands; prints the diagnosis ladder on failure. |
 | `glassray mcp add` | Register the cloud MCP server (28 tools) in `.mcp.json`. |
-| `glassray setup` | The orchestrator that runs all of the above in order (idempotent, re-run-safe). |
+| `glassray setup` | The launcher: sign in → browser wizard → wire the SDK locally → verify. Browser-only for first onboarding; re-runs skip the wizard once it's done. |
 
 The four metadata tags every trace must carry (they drive every breakdown): `glassray.customer`,
 `glassray.environment`, `glassray.agent`, `glassray.flow`. A missing tag silently breaks a

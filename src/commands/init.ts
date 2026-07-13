@@ -20,9 +20,9 @@ const SKILL_DESTS = [
 /** Resolve the bundled SKILL.md asset, tolerating both the built bundle and `tsx` dev. */
 const resolveSkillSource = (): string => {
   const candidates = [
-    // From dist/bin.js → packages/cli/assets/skill/SKILL.md
+    // From the built bundle: dist/bin.js → ../assets/skill/SKILL.md
     fileURLToPath(new URL("../assets/skill/SKILL.md", import.meta.url)),
-    // From src/commands/init.ts (tsx dev) → packages/cli/assets/skill/SKILL.md
+    // From `tsx` dev: src/commands/init.ts → ../../assets/skill/SKILL.md
     fileURLToPath(new URL("../../assets/skill/SKILL.md", import.meta.url)),
   ];
   const found = candidates.find((p) => existsSync(p));

@@ -1,6 +1,6 @@
 {
   "name": "@glassray/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The Glassray CLI: one binary for cloud setup and the local Coach experience.",
   "keywords": [
     "glassray",
@@ -45,6 +45,7 @@
     "build": "tsup",
     "prepack": "tsup",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "lint": "eslint .",
     "release": "release-it",
     "release:dry": "release-it --dry-run"
@@ -58,6 +59,7 @@
     "tsup": "^8.5.0",
     "tsx": "^4.20.3",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.4"
+    "typescript-eslint": "^8.59.4",
+    "vitest": "^4.1.10"
   }
 }

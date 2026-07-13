@@ -62,7 +62,9 @@ const requestJson = async <T>(
   const body = await parseBody(res);
   if (!res.ok) {
     const fallback = `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""} from ${new URL(url).pathname}`;
-    throw new CliError(errorMessage(body, fallback), EXIT.FAILURE);
+    const rawCode = body && typeof body === "object" ? (body as Record<string, unknown>).code : undefined;
+    const code = typeof rawCode === "string" ? rawCode : undefined;
+    throw new CliError(errorMessage(body, fallback), EXIT.FAILURE, code);
   }
   return body as T;
 };

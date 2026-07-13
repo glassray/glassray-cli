@@ -1,7 +1,7 @@
 /**
  * `glassray verify` — the exit gate. Polls `/api/public/setup/status` until a
  * trace has landed (recent push, or any source with traces). On timeout it
- * prints the §5 diagnosis ladder so the user knows exactly what to fix. A
+ * prints a diagnosis ladder so the user knows exactly what to fix. A
  * permanent standalone command, not just an onboarding step.
  */
 import { resolveApiKey } from "../lib/config.js";
@@ -16,7 +16,7 @@ import { bullet, card, detail, dim, info, printData, spinner } from "../lib/ui.j
 const tracesLanded = (s: SetupStatusResponse): boolean =>
   s.recentTraceCount >= 1 || s.traceCount >= 1 || s.sources.some((src) => src.traceCount > 0);
 
-/** The §5 diagnosis ladder shown on a failed verify. */
+/** The diagnosis ladder shown on a failed verify. */
 const DIAGNOSIS: string[] = [
   "401 / 403 → wrong or missing org key: re-run `glassray login` (or check GLASSRAY_TOKEN)",
   "200 but zero traces → exporter endpoint wrong, or the process exited before flush() — check the OTLP endpoint + call flush on shutdown",
@@ -34,7 +34,7 @@ export const cmdVerify = async (ctx: Context, args: string[]): Promise<void> => 
   if (!key) throw new CliError(`not logged in to ${ctx.endpoint} — run \`glassray login\``);
 
   if (boolFlag(values, "canary")) {
-    // SDK-emitted canary traces are a future capability (docs §5). For now,
+    // SDK-emitted canary traces are a future capability. For now,
     // instruct running the real agent — surfaced, not silently ignored.
     info("--canary isn't available yet — run your agent to send a real trace instead.");
   }
