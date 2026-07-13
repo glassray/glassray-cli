@@ -1,0 +1,10 @@
+dist
+node_modules
+*.tsbuildinfo
+.turbo
+
+# Dev artifacts the CLI writes when tested in-tree (never committed).
+.mcp.json
+.env.local
+.claude/skills/glassray
+.agents/skills/glassray

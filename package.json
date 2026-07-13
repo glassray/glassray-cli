@@ -1,0 +1,63 @@
+{
+  "name": "glassray",
+  "version": "0.1.0",
+  "description": "The Glassray CLI: one binary for cloud setup and the local Coach experience.",
+  "keywords": [
+    "glassray",
+    "ai-agents",
+    "agent-quality",
+    "agent-evaluation",
+    "self-improving-agents",
+    "prompt-engineering",
+    "cli"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "Glassray",
+  "homepage": "https://github.com/glassray/glassray-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glassray/glassray-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/glassray/glassray-cli/issues"
+  },
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "glassray": "./dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "assets",
+    "README.md",
+    "DEVELOPMENT.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "dev": "tsx src/bin.ts",
+    "build": "tsup",
+    "prepack": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "release": "release-it",
+    "release:dry": "release-it --dry-run"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^24.12.4",
+    "eslint": "^9.39.4",
+    "globals": "^17.6.0",
+    "release-it": "^20.0.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.4"
+  }
+}

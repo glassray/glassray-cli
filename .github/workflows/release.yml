@@ -1,0 +1,45 @@
+# Publishes to npm when a release tag lands. The local `npm run release`
+# (release-it) owns gates/bump/build/commit/tag/push + the GitHub release; this
+# workflow owns the npm publish, via npm trusted publishing (OIDC) — no
+# maintainer laptop and no long-lived npm token in the publish path, and npm
+# attaches a provenance attestation automatically.
+#
+# One-time setup (npm side): configure this package for trusted publishing
+# pointing at glassray/glassray-cli + this workflow. Until then this is inert
+# scaffolding.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  # OIDC token for npm trusted publishing — the only credential used.
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: package-lock.json
+      # Trusted publishing requires npm >= 11.5.1 — Node 24's bundled npm
+      # satisfies that. Do NOT self-upgrade npm here: overwriting the running
+      # npm can corrupt its bundled deps.
+      - run: npm --version
+      - run: npm ci --no-audit --no-fund
+      # Re-run the CI gates — a tag can't ship code that doesn't pass them.
+      # `npm run` (not `npx <tool>`) so the local bins are used, never a
+      # registry fetch.
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm audit --audit-level=critical
+      # `prepack` (tsup) builds dist/ before packing; `files` ships dist +
+      # assets + docs. No `exports` rewrite needed — this is a bin, not a lib.
+      - run: npm publish --provenance
