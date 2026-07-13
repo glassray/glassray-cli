@@ -12,6 +12,7 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isJsonMode } from "./ui.js";
 
 /** Default Glassray deployment when neither `--endpoint` nor `GLASSRAY_APP_URL` is set. */
 export const DEFAULT_ENDPOINT = "https://app.glassray.ai";
@@ -24,7 +25,9 @@ let legacyEndpointWarned = false;
  * `GLASSRAY_APP_URL` env > `GLASSRAY_ENDPOINT` env (DEPRECATED) > default;
  * trailing slash trimmed. `GLASSRAY_ENDPOINT` is being reserved for the SDK's
  * trace-ingest endpoint — it stays a fallback so existing 0.1.1 users keep
- * working, with a one-time stderr nudge to switch to `GLASSRAY_APP_URL`.
+ * working, with a one-time stderr nudge to switch to `GLASSRAY_APP_URL`. The
+ * nudge is suppressed under `--json` so it can't pollute a JSON command's stderr
+ * (which some consumers treat as a failure signal).
  */
 export const resolveEndpoint = (flag?: string): string => {
   const fromAppUrl = process.env.GLASSRAY_APP_URL;
@@ -35,7 +38,7 @@ export const resolveEndpoint = (flag?: string): string => {
   } else if (fromAppUrl !== undefined && fromAppUrl !== "") {
     raw = fromAppUrl;
   } else if (fromLegacy !== undefined && fromLegacy !== "") {
-    if (!legacyEndpointWarned) {
+    if (!legacyEndpointWarned && !isJsonMode()) {
       legacyEndpointWarned = true;
       process.stderr.write(
         "  warning: GLASSRAY_ENDPOINT is deprecated for the CLI — set GLASSRAY_APP_URL instead " +

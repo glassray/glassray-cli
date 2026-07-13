@@ -19,9 +19,18 @@ import { bold, detail, info, link, MODE_ERR, PALETTE, paintErr, spinner } from "
  */
 const DEFAULT_AUTH_API = "https://auth-api.glassray.ai";
 
-/** Resolve the auth-service base: `GLASSRAY_AUTH_API` env > default. */
+/**
+ * Resolve the auth-service base: `GLASSRAY_AUTH_API` env > the legacy
+ * `GLASSRAY_WORKOS_API` env (DEPRECATED) > default. The legacy var stays a
+ * fallback so an existing staging/dev environment that points it at a non-prod
+ * auth host — matched to its own WorkOS `clientId` — keeps working after upgrade
+ * instead of being silently sent to the production default.
+ */
 export const resolveAuthApi = (): string =>
-  (process.env.GLASSRAY_AUTH_API ?? DEFAULT_AUTH_API).replace(/\/+$/, "");
+  (process.env.GLASSRAY_AUTH_API ?? process.env.GLASSRAY_WORKOS_API ?? DEFAULT_AUTH_API).replace(
+    /\/+$/,
+    "",
+  );
 
 /** The result of a completed device grant. */
 export interface DeviceAuthResult {
