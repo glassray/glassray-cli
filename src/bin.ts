@@ -24,7 +24,13 @@ import { cmdToken } from "./commands/token.js";
 import { cmdUpgrade } from "./commands/upgrade.js";
 import { cmdVerify } from "./commands/verify.js";
 import { cmdWhoami } from "./commands/whoami.js";
-import { cmdStart, LOCAL_DATA_COMMANDS, runLocalData } from "./commands/local/index.js";
+import {
+  cmdStart,
+  LOCAL_DATA_COMMANDS,
+  LOCAL_PASSTHROUGH_COMMANDS,
+  runCoachPassthrough,
+  runLocalData,
+} from "./commands/local/index.js";
 import type { Context } from "./lib/context.js";
 
 // A consumer closing the pipe (`| head`, `| jq -e`) is a normal end of output.
@@ -134,6 +140,10 @@ const main = async (): Promise<void> => {
   }
   if (LOCAL_DATA_COMMANDS.has(command)) {
     await runLocalData(command, ctx, rest);
+    return;
+  }
+  if (LOCAL_PASSTHROUGH_COMMANDS.has(command)) {
+    await runCoachPassthrough(command, ctx, rest);
     return;
   }
   const handler = HANDLERS[command];

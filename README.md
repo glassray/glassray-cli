@@ -73,6 +73,10 @@ glassray fix <deviationId>     Generate a fix doc for your coding agent
 glassray runs · stats · usage  Background runs · store rollups · LLM spend
 ```
 
+The loop verbs — `pull` / `push` / `run` / `compare` / `check` / `link` — are handed to the
+coach CLI verbatim (they read and write repo-side files like `glassray.yaml` and fixtures
+directories), so the whole harness loop works from the one `glassray` binary too.
+
 **Manage**
 
 ```

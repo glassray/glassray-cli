@@ -39,11 +39,13 @@ const COMMAND_SECTIONS: { title: string; note?: string; rows: [string, string][]
     rows: [
       ["start", "Run the local Coach server (installs @glassray/coach on demand)"],
       ["traces", "list · get <id> · tail"],
-      ["flows / evals", "list · get · create · update · delete · run · audit"],
+      ["flows / evals", "list · get · create · update · delete · run · audit · discover"],
       ["deviations", "list · get <id> · resolve <id>"],
       ["discovery run", "Find recurring failures across recent traces"],
       ["fix <deviationId>", "Generate a fix doc for your coding agent"],
       ["runs · stats · usage", "Background runs · store rollups · LLM spend"],
+      ["pull / push / check", "glassray.yaml round-trip · the CI gate (via @glassray/coach)"],
+      ["run / compare / link", "Label a run · A/B two labels · link a cloud project"],
     ],
   },
   {

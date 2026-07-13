@@ -1,11 +1,14 @@
 /**
- * The local Coach surface of the umbrella CLI: `start` (the one lazy-heavy path,
- * delegated to `@glassray/coach`) plus the data verbs (traces / stats / usage /
- * flows / evals / deviations / discovery / fix / runs). The verbs are thin
- * loopback fetchers ported from `coach/bin/commands.mjs` — command names and
- * semantics are identical, and stdout is the API JSON verbatim (never decorated).
+ * The local Coach surface of the umbrella CLI: `start` and the loop verbs
+ * (pull / push / run / compare / check / link) delegated to `@glassray/coach`
+ * (they need repo-side files — glassray.yaml, fixtures, run recipes), plus the
+ * data verbs (traces / stats / usage / flows / evals / deviations / discovery /
+ * fix / runs). The data verbs are thin loopback fetchers ported from
+ * `coach/bin/commands.mjs` — command names and semantics are identical, and
+ * stdout is the API JSON verbatim (never decorated).
  */
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { boolFlag, parseCommand, resolveTimeoutSec, strFlag, type Context } from "../../lib/context.js";
@@ -34,6 +37,9 @@ export const LOCAL_DATA_COMMANDS = new Set([
   "fix",
   "runs",
 ]);
+
+/** Loop verbs delegated verbatim to the coach CLI — they read/write repo-side files (glassray.yaml, fixtures dirs, run recipes) the loopback fetchers don't model. */
+export const LOCAL_PASSTHROUGH_COMMANDS = new Set(["pull", "push", "run", "compare", "check", "link"]);
 
 /** Options every waiting verb accepts. */
 const WAIT_FLAGS = { "no-wait": { type: "boolean" }, timeout: { type: "string" } } as const;
@@ -73,18 +79,30 @@ const parseJsonFlag = (flag: string, value: string): unknown => {
   }
 };
 
-// ── start (delegated to @glassray/coach) ───────────────────────────────────────
+/** Parse an integer flag (≥ min) or throw. */
+const intFlag = (flag: string, value: string, min: number): number => {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < min) throw new CliError(`--${flag} must be an integer ≥ ${min} (got: ${value})`);
+  return n;
+};
+
+/** Parse a 0..1 rate flag or throw. */
+const rateFlag = (flag: string, value: string): number => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 1) {
+    throw new CliError(`--${flag} must be a number between 0 and 1 (got: ${value})`);
+  }
+  return n;
+};
+
+// ── delegation to @glassray/coach (`start` + the loop verbs) ───────────────────
 
 /**
- * `glassray start` — run the local Coach server. Prefers a locally-installed
- * `@glassray/coach`; falls back to `npx --yes @glassray/coach start`. This is the
- * ONE heavy path (npx cold-starts the coach package on demand).
+ * Resolve how to invoke the coach CLI: a locally-installed `@glassray/coach`
+ * (its bin located via package.json, so the bin's name doesn't matter), else
+ * `npx --yes @glassray/coach` (the one heavy, cold-start path).
  */
-export const cmdStart = async (ctx: Context, args: string[]): Promise<void> => {
-  // Pass through the port and any extra flags (already in `args`).
-  const passthrough = [...args];
-  if (!passthrough.includes("--port")) passthrough.push("--port", String(ctx.port));
-
+const coachInvocation = (verbArgs: string[]): { cmd: string; args: string[]; useShell: boolean } => {
   const require = createRequire(import.meta.url);
   let localBin: string | null = null;
   try {
@@ -95,14 +113,21 @@ export const cmdStart = async (ctx: Context, args: string[]): Promise<void> => {
   } catch {
     localBin = null;
   }
-
-  const [cmd, spawnArgs] = localBin
-    ? [process.execPath, [localBin, "start", ...passthrough]]
-    : ["npx", ["--yes", "@glassray/coach", "start", ...passthrough]];
-
+  if (localBin) return { cmd: process.execPath, args: [localBin, ...verbArgs], useShell: false };
   // The `npx` fallback is a `.cmd` shim on Windows, which Node can't exec without
   // a shell; the localBin path runs node directly and never needs one.
-  const useShell = !localBin && process.platform === "win32";
+  return { cmd: "npx", args: ["--yes", "@glassray/coach", ...verbArgs], useShell: process.platform === "win32" };
+};
+
+/**
+ * `glassray start` — run the local Coach server. Prefers a locally-installed
+ * `@glassray/coach`; falls back to `npx --yes @glassray/coach start`.
+ */
+export const cmdStart = async (ctx: Context, args: string[]): Promise<void> => {
+  // Pass through the port and any extra flags (already in `args`).
+  const passthrough = [...args];
+  if (!passthrough.includes("--port")) passthrough.push("--port", String(ctx.port));
+  const { cmd, args: spawnArgs, useShell } = coachInvocation(["start", ...passthrough]);
 
   await new Promise<void>((resolve, reject) => {
     const child = spawn(cmd, spawnArgs, { stdio: "inherit", shell: useShell });
@@ -112,6 +137,31 @@ export const cmdStart = async (ctx: Context, args: string[]): Promise<void> => {
     child.on("exit", (code) => {
       if (code === 0 || code === null) resolve();
       else reject(new CliError(`Coach exited with code ${code}`, code ?? 1));
+    });
+  });
+};
+
+/**
+ * The loop verbs (`pull` / `push` / `run` / `compare` / `check` / `link`),
+ * handed to the coach CLI verbatim. They keep the caller's cwd (glassray.yaml,
+ * fixtures dirs, run recipes are repo-relative) and the port travels as
+ * `GLASSRAY_PORT`. Coach prints its own data/errors; only its exit code is
+ * propagated — no second error line on top.
+ */
+export const runCoachPassthrough = async (command: string, ctx: Context, args: string[]): Promise<void> => {
+  const { cmd, args: spawnArgs, useShell } = coachInvocation([command, ...args]);
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(cmd, spawnArgs, {
+      stdio: "inherit",
+      shell: useShell,
+      env: { ...process.env, GLASSRAY_PORT: String(ctx.port) },
+    });
+    child.on("error", (err) =>
+      reject(new CliError(`could not run the coach CLI (${err.message}) — is npx available?`, 2)),
+    );
+    child.on("exit", (code) => {
+      if (code !== 0 && code !== null) process.exitCode = code;
+      resolve();
     });
   });
 };
@@ -128,6 +178,7 @@ const cmdTraces = async (ctx: Context, args: string[]): Promise<void> => {
       agent: { type: "string" },
       status: { type: "string" },
       flow: { type: "string" },
+      label: { type: "string" },
       limit: { type: "string" },
       offset: { type: "string" },
     });
@@ -136,6 +187,7 @@ const cmdTraces = async (ctx: Context, args: string[]): Promise<void> => {
       agent: strFlag(values, "agent"),
       status: strFlag(values, "status"),
       flow: strFlag(values, "flow"),
+      label: strFlag(values, "label"),
       limit: strFlag(values, "limit"),
       offset: strFlag(values, "offset"),
     });
@@ -221,8 +273,41 @@ const cmdFlows = async (ctx: Context, args: string[]): Promise<void> => {
       return printJson(await loopbackApi(ctx.port, `/api/flows/${encodeURIComponent(requireId(positionals))}/audit`));
     }
     case "discover": {
-      const { values } = parseCommand(rest, WAIT_FLAGS);
-      return enqueueAndWait(ctx.port, "/api/flows/run", {}, waitOpts(values));
+      // Discover flows FROM CODE: resolve the repo root to scan from --code-root
+      // or the artifact file's `codeRoot`, make it absolute, and hand it to the
+      // server (which otherwise falls back to its own launch cwd, or 400s).
+      const { values } = parseCommand(rest, {
+        "code-root": { type: "string" },
+        file: { type: "string" },
+        ...WAIT_FLAGS,
+      });
+      const body: Record<string, unknown> = {};
+      const codeRoot = strFlag(values, "code-root");
+      if (codeRoot !== undefined) {
+        body.codeRoot = path.resolve(codeRoot);
+      } else {
+        // An explicitly named --file must exist and parse; the implicit default
+        // is best-effort (a repo without glassray.yaml is fine).
+        const explicitFile = strFlag(values, "file");
+        const file = explicitFile ?? "glassray.yaml";
+        const text = await readFile(file, "utf8").catch((err: unknown) => {
+          if (explicitFile === undefined) return null;
+          const message = err instanceof Error ? err.message : String(err);
+          throw new CliError(`could not read --file ${file}: ${message}`);
+        });
+        if (text !== null) {
+          try {
+            const parsed = await loopbackPost(ctx.port, "/api/artifact/parse", { yaml: text });
+            const artifact = parsed.artifact as { codeRoot?: string } | undefined;
+            if (artifact?.codeRoot) body.codeRoot = path.resolve(path.dirname(file), artifact.codeRoot);
+          } catch (err) {
+            if (explicitFile !== undefined) throw err;
+            // Fall through with no codeRoot — the server resolves from its own
+            // cwd, or returns a helpful 400 telling the user to set codeRoot.
+          }
+        }
+      }
+      return enqueueAndWait(ctx.port, "/api/flows/run", body, waitOpts(values));
     }
     default:
       throw new CliError(verb === undefined ? "missing flows verb" : `unknown flows verb "${verb}"`);
@@ -244,28 +329,46 @@ const cmdEvals = async (ctx: Context, args: string[]): Promise<void> => {
       const { values } = parseCommand(rest, {
         deviation: { type: "string" },
         flow: { type: "string" },
-        label: { type: "string" },
-        rule: { type: "string" },
+        name: { type: "string" },
+        text: { type: "string" },
         description: { type: "string" },
-        "no-autorun": { type: "boolean" },
+        "source-file": { type: "string" },
+        threshold: { type: "string" },
+        judge: { type: "string" },
         "autorun-threshold": { type: "string" },
       });
       const body: Record<string, unknown> = {};
       const deviation = strFlag(values, "deviation");
       if (deviation !== undefined) {
+        if (
+          strFlag(values, "name") !== undefined ||
+          strFlag(values, "text") !== undefined ||
+          strFlag(values, "description") !== undefined ||
+          strFlag(values, "source-file") !== undefined ||
+          strFlag(values, "threshold") !== undefined ||
+          strFlag(values, "judge") !== undefined ||
+          strFlag(values, "autorun-threshold") !== undefined
+        ) {
+          throw new CliError("--deviation only combines with --flow (the deviation supplies the name/text)");
+        }
         body.deviationId = deviation;
       } else {
-        const label = strFlag(values, "label");
-        const rule = strFlag(values, "rule");
-        if (label === undefined || rule === undefined) {
-          throw new CliError("create needs --deviation <id>, or both --label and --rule");
+        const name = strFlag(values, "name");
+        const text = strFlag(values, "text");
+        if (name === undefined || text === undefined) {
+          throw new CliError("create needs --deviation <id>, or both --name and --text");
         }
-        body.label = label;
-        body.rule = rule;
+        body.name = name;
+        body.text = text;
         if (strFlag(values, "description") !== undefined) body.description = strFlag(values, "description");
-        if (boolFlag(values, "no-autorun")) body.autorun = false;
-        const threshold = strFlag(values, "autorun-threshold");
-        if (threshold !== undefined) body.autorunThreshold = Number(threshold);
+        // A --source-file path becomes the rule's single code anchor (source: 'code').
+        const sourceFile = strFlag(values, "source-file");
+        if (sourceFile !== undefined) body.anchors = [{ file: sourceFile }];
+        const threshold = strFlag(values, "threshold");
+        if (threshold !== undefined) body.threshold = rateFlag("threshold", threshold);
+        if (strFlag(values, "judge") !== undefined) body.judgeModel = strFlag(values, "judge");
+        const autorunThreshold = strFlag(values, "autorun-threshold");
+        if (autorunThreshold !== undefined) body.autorunThreshold = intFlag("autorun-threshold", autorunThreshold, 1);
       }
       if (strFlag(values, "flow") !== undefined) body.flowId = strFlag(values, "flow");
       return printJson(await loopbackPost(ctx.port, "/api/evals", body));
@@ -274,18 +377,40 @@ const cmdEvals = async (ctx: Context, args: string[]): Promise<void> => {
       const { values, positionals } = parseCommand(rest, {
         flow: { type: "string" },
         "no-flow": { type: "boolean" },
-        autorun: { type: "boolean" },
-        "no-autorun": { type: "boolean" },
+        "source-file": { type: "string" },
+        "no-source-file": { type: "boolean" },
+        threshold: { type: "string" },
+        "no-threshold": { type: "boolean" },
+        judge: { type: "string" },
+        "no-judge": { type: "boolean" },
         "autorun-threshold": { type: "string" },
       });
       const id = requireId(positionals);
+      if (strFlag(values, "flow") !== undefined && boolFlag(values, "no-flow")) {
+        throw new CliError("pass either --flow or --no-flow, not both");
+      }
+      if (strFlag(values, "source-file") !== undefined && boolFlag(values, "no-source-file")) {
+        throw new CliError("pass either --source-file or --no-source-file, not both");
+      }
+      if (strFlag(values, "threshold") !== undefined && boolFlag(values, "no-threshold")) {
+        throw new CliError("pass either --threshold or --no-threshold, not both");
+      }
+      if (strFlag(values, "judge") !== undefined && boolFlag(values, "no-judge")) {
+        throw new CliError("pass either --judge or --no-judge, not both");
+      }
       const body: Record<string, unknown> = {};
       if (strFlag(values, "flow") !== undefined) body.flowId = strFlag(values, "flow");
       if (boolFlag(values, "no-flow")) body.flowId = null;
-      if (boolFlag(values, "autorun")) body.autorun = true;
-      if (boolFlag(values, "no-autorun")) body.autorun = false;
-      const threshold = strFlag(values, "autorun-threshold");
-      if (threshold !== undefined) body.autorunThreshold = Number(threshold);
+      const sourceFile = strFlag(values, "source-file");
+      if (sourceFile !== undefined) body.anchors = [{ file: sourceFile }];
+      if (boolFlag(values, "no-source-file")) body.anchors = null;
+      const threshold = strFlag(values, "threshold");
+      if (threshold !== undefined) body.threshold = rateFlag("threshold", threshold);
+      if (boolFlag(values, "no-threshold")) body.threshold = null;
+      if (strFlag(values, "judge") !== undefined) body.judgeModel = strFlag(values, "judge");
+      if (boolFlag(values, "no-judge")) body.judgeModel = null;
+      const autorunThreshold = strFlag(values, "autorun-threshold");
+      if (autorunThreshold !== undefined) body.autorunThreshold = intFlag("autorun-threshold", autorunThreshold, 1);
       return printJson(await loopbackPatch(ctx.port, `/api/evals/${encodeURIComponent(id)}`, body));
     }
     case "run": {
