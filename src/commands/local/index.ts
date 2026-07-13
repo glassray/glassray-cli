@@ -3,7 +3,7 @@
  * (pull / push / run / compare / check / link) delegated to `@glassray/coach`
  * (they need repo-side files — glassray.yaml, fixtures, run recipes), plus the
  * data verbs (traces / stats / usage / flows / evals / deviations / discovery /
- * fix / runs). The data verbs are thin loopback fetchers ported from
+ * experiments / fix / runs). The data verbs are thin loopback fetchers ported from
  * `coach/bin/commands.mjs` — command names and semantics are identical, and
  * stdout is the API JSON verbatim (never decorated).
  */
@@ -34,6 +34,7 @@ export const LOCAL_DATA_COMMANDS = new Set([
   "evals",
   "deviations",
   "discovery",
+  "experiments",
   "fix",
   "runs",
 ]);
@@ -436,7 +437,21 @@ const cmdEvals = async (ctx: Context, args: string[]): Promise<void> => {
   }
 };
 
-/** `deviations list|get|resolve`. */
+/**
+ * The discovery-run action: cluster recent traces into recurring failures
+ * (deviations). Shared by the canonical `deviations discover` and its kept
+ * `discovery run` alias — identical flags (--sample, --flow, --no-wait,
+ * --timeout), the same `/api/discovery/run` enqueue, no behavior difference.
+ */
+const runDiscovery = async (ctx: Context, args: string[]): Promise<void> => {
+  const { values } = parseCommand(args, { sample: { type: "string" }, flow: { type: "string" }, ...WAIT_FLAGS });
+  const body: Record<string, unknown> = {};
+  if (strFlag(values, "sample") !== undefined) body.sampleSize = Number(strFlag(values, "sample"));
+  if (strFlag(values, "flow") !== undefined) body.flowId = strFlag(values, "flow");
+  return enqueueAndWait(ctx.port, "/api/discovery/run", body, waitOpts(values));
+};
+
+/** `deviations list|get|discover|resolve`. */
 const cmdDeviations = async (ctx: Context, args: string[]): Promise<void> => {
   const verb = args[0];
   const rest = args.slice(1);
@@ -447,6 +462,9 @@ const cmdDeviations = async (ctx: Context, args: string[]): Promise<void> => {
       const { positionals } = parseCommand(rest);
       return printJson(await loopbackApi(ctx.port, `/api/deviations/${encodeURIComponent(requireId(positionals))}`));
     }
+    case "discover":
+      // The canonical spelling of the discovery-run action; `discovery run` aliases it.
+      return runDiscovery(ctx, rest);
     case "resolve": {
       const { values, positionals } = parseCommand(rest, { reopen: { type: "boolean" } });
       const id = requireId(positionals);
@@ -458,15 +476,36 @@ const cmdDeviations = async (ctx: Context, args: string[]): Promise<void> => {
   }
 };
 
-/** `discovery run`. */
+/** `discovery run` — kept alias of the canonical `deviations discover`. */
 const cmdDiscovery = async (ctx: Context, args: string[]): Promise<void> => {
   const verb = args[0];
   if (verb !== "run") throw new CliError(verb === undefined ? "missing verb (run)" : `unknown discovery verb "${verb}"`);
-  const { values } = parseCommand(args.slice(1), { sample: { type: "string" }, flow: { type: "string" }, ...WAIT_FLAGS });
-  const body: Record<string, unknown> = {};
-  if (strFlag(values, "sample") !== undefined) body.sampleSize = Number(strFlag(values, "sample"));
-  if (strFlag(values, "flow") !== undefined) body.flowId = strFlag(values, "flow");
-  return enqueueAndWait(ctx.port, "/api/discovery/run", body, waitOpts(values));
+  return runDiscovery(ctx, args.slice(1));
+};
+
+/**
+ * `experiments list [--flow <id>]|get <id>` — read-only view of the durable
+ * compare experiments (GET /api/experiments[?flowId=…] and
+ * /api/experiments/:id). Deliberately list/get only, matching
+ * `coach/bin/commands.mjs`; the write endpoints (create / report) are not
+ * surfaced here.
+ */
+const cmdExperiments = async (ctx: Context, args: string[]): Promise<void> => {
+  const verb = args[0];
+  const rest = args.slice(1);
+  switch (verb) {
+    case "list": {
+      // The endpoint takes an optional `flowId` scope; surface it as `--flow`.
+      const { values } = parseCommand(rest, { flow: { type: "string" } });
+      return printJson(await loopbackApi(ctx.port, `/api/experiments${toQuery({ flowId: strFlag(values, "flow") })}`));
+    }
+    case "get": {
+      const { positionals } = parseCommand(rest);
+      return printJson(await loopbackApi(ctx.port, `/api/experiments/${encodeURIComponent(requireId(positionals))}`));
+    }
+    default:
+      throw new CliError(verb === undefined ? "missing experiments verb" : `unknown experiments verb "${verb}"`);
+  }
 };
 
 /** `fix <deviationId>`. */
@@ -517,6 +556,8 @@ export const runLocalData = async (command: string, ctx: Context, args: string[]
       return cmdDeviations(ctx, args);
     case "discovery":
       return cmdDiscovery(ctx, args);
+    case "experiments":
+      return cmdExperiments(ctx, args);
     case "fix":
       return cmdFix(ctx, args);
     case "runs":

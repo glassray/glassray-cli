@@ -67,8 +67,8 @@ glassray start                 Run the local Coach server (installs @glassray/co
 glassray traces                list · get <id> · tail
 glassray flows                 list · get · create · update · delete · audit · discover
 glassray evals                 list · get · create · update · delete · run
-glassray deviations            list · get <id> · resolve <id>
-glassray discovery run         Find recurring failures across recent traces
+glassray deviations            list · get <id> · discover · resolve <id>
+glassray experiments           list [--flow <id>] · get <id>  (read-only A/B experiments)
 glassray fix <deviationId>     Generate a fix doc for your coding agent
 glassray runs · stats · usage  Background runs · store rollups · LLM spend
 ```
@@ -91,7 +91,7 @@ glassray upgrade               How to self-update
 
 | Flag               | Env                     | Meaning                                                                      |
 | ------------------ | ----------------------- | ---------------------------------------------------------------------------- |
-| `--endpoint <url>` | `GLASSRAY_ENDPOINT`     | Target deployment (default `https://app.glassray.ai`).                       |
+| `--endpoint <url>` | `GLASSRAY_APP_URL`      | Target deployment (default `https://app.glassray.ai`). `GLASSRAY_ENDPOINT` still works but is deprecated — it's being reserved for the SDK's trace-ingest endpoint. |
 | `--api-key <key>`  | `GLASSRAY_TOKEN`        | Org key for CI/headless. Precedence: flag, then env, then stored credential. |
 | `--json`           | (none)                  | Machine output on stdout (status chrome stays on stderr).                    |
 | `--port <n>`       | `GLASSRAY_PORT`         | Local Coach port (default `5899`).                                           |

@@ -13,12 +13,18 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "n
 import os from "node:os";
 import path from "node:path";
 
-/** Default Glassray deployment when neither `--endpoint` nor `GLASSRAY_ENDPOINT` is set. */
+/** Default Glassray deployment when neither `--endpoint` nor the endpoint env vars are set. */
 export const DEFAULT_ENDPOINT = "https://app.glassray.ai";
 
-/** Resolve the endpoint: `--endpoint` flag > `GLASSRAY_ENDPOINT` env > default. Trailing slash trimmed. */
+/**
+ * Resolve the endpoint: `--endpoint` flag > `GLASSRAY_APP_URL` env >
+ * `GLASSRAY_ENDPOINT` env > default. Trailing slash trimmed.
+ * `GLASSRAY_APP_URL` is the canonical name; `GLASSRAY_ENDPOINT` still works but
+ * is deprecated for the CLI — it's being reserved for the SDK's trace-ingest
+ * endpoint, and keeping both readable here bridges existing shells.
+ */
 export const resolveEndpoint = (flag?: string): string => {
-  const raw = flag ?? process.env.GLASSRAY_ENDPOINT ?? DEFAULT_ENDPOINT;
+  const raw = flag ?? process.env.GLASSRAY_APP_URL ?? process.env.GLASSRAY_ENDPOINT ?? DEFAULT_ENDPOINT;
   return raw.replace(/\/+$/, "");
 };
 

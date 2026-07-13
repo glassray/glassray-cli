@@ -73,7 +73,7 @@ the full table — the key ones for local dev:
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `GLASSRAY_ENDPOINT` | `https://app.glassray.ai` | Glassray deployment to target (or `--endpoint`). |
+| `GLASSRAY_APP_URL` | `https://app.glassray.ai` | Glassray deployment to target (or `--endpoint`). `GLASSRAY_ENDPOINT` is a deprecated fallback — being reserved for the SDK's trace-ingest endpoint. |
 | `GLASSRAY_TOKEN` | — | Org key for CI/headless (or `--api-key`). Distinct from the SDK's `GLASSRAY_API_KEY`. |
 | `GLASSRAY_WORKOS_API` | `https://api.workos.com` | WorkOS device-auth base (override while the endpoint host is being confirmed). |
 | `GLASSRAY_PORT` | `5899` | Local Coach port (or `--port`). |
