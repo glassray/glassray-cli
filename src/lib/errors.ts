@@ -18,10 +18,16 @@ export const EXIT = {
 export class CliError extends Error {
   /** Process exit code to surface. */
   readonly exitCode: number;
-  constructor(message: string, exitCode: number = EXIT.FAILURE) {
+  /** Machine-readable code from the server's `{ code }` field, for callers that branch on it (e.g. `org-name-required`). */
+  readonly code?: string;
+  /** An optional remediation shown under the error (e.g. "run `glassray logout`"). */
+  readonly hint?: string;
+  constructor(message: string, exitCode: number = EXIT.FAILURE, code?: string, hint?: string) {
     super(message);
     this.name = "CliError";
     this.exitCode = exitCode;
+    this.code = code;
+    this.hint = hint;
   }
 }
 

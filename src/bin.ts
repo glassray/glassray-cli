@@ -8,7 +8,7 @@
 import { parseArgs } from "node:util";
 import { buildContext, GLOBAL_OPTIONS } from "./lib/context.js";
 import { CliError, EXIT } from "./lib/errors.js";
-import { errorLine, setJsonMode, VERSION } from "./lib/ui.js";
+import { errorLine, hint, setJsonMode, VERSION } from "./lib/ui.js";
 import { cmdConnect } from "./commands/connect.js";
 import { cmdDetect } from "./commands/detect.js";
 import { cmdDoctor } from "./commands/doctor.js";
@@ -160,6 +160,7 @@ main().then(
   (err: unknown) => {
     if (err instanceof CliError) {
       errorLine(err.message);
+      if (err.hint) hint(err.hint);
       process.exitCode = err.exitCode;
       return;
     }

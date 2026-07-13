@@ -248,6 +248,16 @@ export const card = (lines: string[]): void => {
 export const rule = (label: string): string =>
   `  ${paint("──", PALETTE.muted)} ${bold(label)} ${paint("─".repeat(Math.max(2, 52 - label.length)), PALETTE.muted)}`;
 
+/** A blank spacer line on stderr, to separate phases (suppressed in JSON mode). */
+export const blank = (): void => {
+  if (!jsonMode) process.stderr.write("\n");
+};
+
+/** Ring the terminal bell (best-effort) to pull attention back — e.g. when the browser step finishes. */
+export const bell = (): void => {
+  if (!jsonMode && process.stderr.isTTY === true) process.stderr.write("\x07");
+};
+
 /** A neutral status line on stderr (suppressed in JSON mode). */
 export const info = (message: string): void => {
   if (!jsonMode) process.stderr.write(`  ${message}\n`);
@@ -266,6 +276,11 @@ export const warn = (message: string): void => {
 /** A red-✗ error line on stderr (always shown — errors matter even in JSON mode). */
 export const errorLine = (message: string): void => {
   process.stderr.write(`  ${cross()} ${message}\n`);
+};
+
+/** A remediation hint on stderr, shown under an error (e.g. "run `glassray logout`"). Always shown. */
+export const hint = (message: string): void => {
+  process.stderr.write(`    ${paintErr("→", PALETTE.brandBright)} ${dim(message, MODE_ERR)}\n`);
 };
 
 /** A dim, indented secondary line on stderr (suppressed in JSON mode). */
@@ -302,16 +317,24 @@ export const spinner = (initial: string): Spinner => {
   let timer: NodeJS.Timeout | null = null;
   let lastLen = 0;
 
-  /** Erase the current spinner line in place. */
+  /** Erase the current spinner line in place (carriage return + clear to end of line). */
   const clearLine = (): void => {
-    if (lastLen > 0) process.stderr.write(`\r${" ".repeat(lastLen)}\r`);
+    if (lastLen > 0) process.stderr.write("\r\x1b[K");
     lastLen = 0;
   };
-  /** Redraw the spinner line in place. */
+  /**
+   * Redraw the spinner line in place, capped to a single terminal row. A line
+   * wider than the terminal wraps, after which `\r` can't return to the logical
+   * line start and the spinner "scrolls" — so when it would overflow, fall back
+   * to a plain, hard-truncated line that fits on one row.
+   */
   const render = (): void => {
-    const line = `  ${paintErr(SPINNER_FRAMES[frame] ?? "", PALETTE.acid)} ${text}`;
-    process.stderr.write(`\r${line}`);
-    lastLen = Math.max(lastLen, stripAnsiLength(line));
+    const raw = `  ${paintErr(SPINNER_FRAMES[frame] ?? "", PALETTE.acid)} ${text}`;
+    const cols = process.stderr.columns ?? 80;
+    const line = stripAnsiLength(raw) < cols ? raw : stripAnsi(raw).slice(0, cols - 1);
+    // `\r` to column 0, `\x1b[K` to erase any residue from a previous longer line.
+    process.stderr.write(`\r\x1b[K${line}`);
+    lastLen = stripAnsiLength(line);
   };
   /** Stop the animation loop. */
   const halt = (): void => {
@@ -354,10 +377,13 @@ export const spinner = (initial: string): Spinner => {
   };
 };
 
-/** Visible length of a string, ignoring ANSI SGR + OSC-8 escapes (for line clearing). */
-const stripAnsiLength = (s: string): number =>
+/** Strip ANSI SGR + OSC-8 escapes, returning the plain visible text. */
+const stripAnsi = (s: string): string =>
   // eslint-disable-next-line no-control-regex
-  s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").length;
+  s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "");
+
+/** Visible length of a string, ignoring ANSI SGR + OSC-8 escapes (for line clearing). */
+const stripAnsiLength = (s: string): number => stripAnsi(s).length;
 
 // ── update check (retargeted to the `@glassray/cli` package) ───────────────
 

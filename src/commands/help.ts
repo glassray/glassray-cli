@@ -27,7 +27,7 @@ const COMMAND_SECTIONS: { title: string; note?: string; rows: [string, string][]
       ["setup", "One-shot: pair · connect · instrument · verify (the orchestrator)"],
       ["login / logout", "Pair this machine with your Glassray org (device grant)"],
       ["detect", "Inspect this repo: framework, tracing, provider keys"],
-      ["connect <target>", "otlp · langsmith · langfuse · posthog · github · slack"],
+      ["connect <target>", "Open its dashboard page — otlp · langsmith · langfuse · posthog · slack · github"],
       ["instrument", "Wire the SDK + tags (runs `claude -p`, or --prompt-only)"],
       ["verify", "The exit gate: poll until a real trace lands"],
       ["status / whoami", "Account aggregate · who the key resolves to"],

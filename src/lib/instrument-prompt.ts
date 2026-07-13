@@ -1,17 +1,16 @@
 /**
  * Builds the scoped instrumentation prompt handed to the customer's Claude (or
  * printed with `--prompt-only`): wire the `@glassray/tracing` SDK and stamp the
- * four APP-14691 metadata tags. Single-source so the prompt and the SDK can't
- * drift (docs/onboarding-wizard.md §2).
+ * four Glassray metadata tags. Single-source so the prompt and the SDK can't
+ * drift.
  *
- * The four attribute NAMES are hardcoded here (not imported) to keep the CLI
- * dependency-free for extraction into a public repo. Keep them in sync with the
- * trace metadata convention (docs/trace-metadata-convention.md — the
- * `glassray.*` vocabulary): if the convention changes, update this list.
+ * The four attribute NAMES are hardcoded here (not imported) to keep this package
+ * dependency-free. Keep them in sync with the Glassray trace metadata convention
+ * (the `glassray.*` vocabulary): if the convention changes, update this list.
  */
 import type { DetectReport } from "./detect.js";
 
-/** The four APP-14691 metadata attribute names the instrumented agent must emit. */
+/** The four Glassray metadata attribute names the instrumented agent must emit. */
 export const GLASSRAY_TAGS = {
   customer: "glassray.customer",
   environment: "glassray.environment",

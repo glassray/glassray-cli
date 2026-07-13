@@ -2,7 +2,7 @@
  * Best-effort run-telemetry (phase/step events) so we can see where setup stalls
  * in aggregate. Strictly fire-and-forget: honors `--no-telemetry` /
  * `GLASSRAY_NO_TELEMETRY`, never blocks a command, never throws, and carries no
- * secrets. See docs/onboarding-wizard.md §9 (opt-out, PostHog-parity).
+ * secrets (only coarse phase/step names).
  */
 import type { Context } from "./context.js";
 

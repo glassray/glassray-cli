@@ -4,18 +4,16 @@ Contributor reference: running from a clone, layout, the self-contained rule, an
 The user-facing docs live at [glassray.ai/docs/cli](https://glassray.ai/docs/cli/reference).
 
 This package is **self-contained by design** — zero runtime dependencies (Node built-ins +
-native `fetch` only) and **no `@helix/*` / `workspace:` imports** — so it is liftable into its
-own public repo with no changes. Its only couplings are runtime boundaries: HTTPS to the
-Glassray API, and shelling out to `npx @glassray/coach` for `glassray start`.
+native `fetch` only) and no imports from outside this repo. Its only couplings are runtime
+boundaries: HTTPS to the Glassray API, and shelling out to `npx @glassray/coach` for
+`glassray start`.
 
-It lives as a git submodule at `packages/cli` inside the Glassray monorepo, but it is a
-**standalone npm package** with its own `package-lock.json` and CI — deliberately kept **out**
-of the monorepo's pnpm workspace (nothing in the monorepo depends on it), so develop it with
-plain `npm` from this directory.
+It's a **standalone npm package** with its own `package-lock.json` and CI — develop it with plain
+`npm` from this directory.
 
 ## Commands
 
-From `packages/cli` (install once from the committed lockfile, then use the package scripts):
+From the repo root (install once from the committed lockfile, then use the package scripts):
 
 ```sh
 npm ci                 # reproducible install from package-lock.json (or `npm install`)
@@ -23,6 +21,7 @@ npm ci                 # reproducible install from package-lock.json (or `npm in
 npm run dev            # tsx src/bin.ts — run straight from TypeScript
 npm run build          # tsup → dist/bin.js (+ .map), shebang-marked executable
 npm run typecheck      # tsc --noEmit
+npm test               # vitest run — unit tests (*.test.ts alongside the source)
 npm run lint           # eslint .
 
 node dist/bin.js --help           # run the built binary locally
@@ -40,8 +39,14 @@ The bundled skill asset (`assets/skill/SKILL.md`) is resolved at runtime relativ
   `Context`, and dispatches. stdout = data, stderr = status; exit `0` ok · `1` handled failure ·
   `2` unreachable.
 - `src/commands/` — one file per command. Each parses its own args (global flags merged in via
-  `parseCommand`), is idempotent, and speaks `--json`. `setup.ts` is just the orchestrator that
-  sequences the standalone steps. `local/index.ts` holds `start` + the Coach data verbs.
+  `parseCommand`), is idempotent, and speaks `--json`. `setup.ts` is the **launcher** (v3): it
+  signs in, opens the browser onboarding wizard, polls `/v1/setup/status` until
+  `onboardingCompleted`, then wires the SDK locally (only when `tracePath` is `otlp`/`none`) and
+  verifies — the full guided flow (GitHub · traces · Slack) runs in the web wizard. `connect.ts`
+  is a thin browser launcher: `glassray connect <target>` resolves the app URL and opens the
+  matching dashboard settings page (`otlp`/`langsmith`/`langfuse`/`posthog` → sources, `slack` →
+  notifications, `github` → integrations); `--no-open` prints the URL instead of opening it.
+  `local/index.ts` holds `start` + the Coach data verbs.
 - `src/lib/` — the shared machinery: `context.ts` (arg parsing + `Context`), `config.ts` (the
   `~/.config/glassray` credential store + endpoint resolution), `http.ts` (typed fetch wrappers
   for the REST API + the raw WorkOS device flow), `device-auth.ts` (RFC 8628 grant), `ui.ts`
@@ -52,12 +57,10 @@ The bundled skill asset (`assets/skill/SKILL.md`) is resolved at runtime relativ
 
 ## The REST contract (`src/lib/types.ts`)
 
-The Glassray public REST contract is vendored **locally** as plain TypeScript interfaces rather
-than imported from `@helix/shared`, so the package stays dependency-free and extractable. The
-canonical source is `docs/onboarding-wizard.md §4` in the monorepo; **`types.ts` is kept in sync
-by hand.** When the API contract changes, update `types.ts` to match — there is no build-time
-check that catches drift, because that coupling is exactly what we're avoiding. The runtime call
-paths themselves live in `src/lib/http.ts`.
+The Glassray public REST contract is defined **locally** as plain TypeScript interfaces, so the
+package stays dependency-free. **`types.ts` is kept in sync with the API by hand** — when the
+contract changes, update `types.ts` to match; there is no build-time check that catches drift.
+The runtime call paths themselves live in `src/lib/http.ts`.
 
 ## How `start` delegates to Coach
 

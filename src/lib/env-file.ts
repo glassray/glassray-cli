@@ -1,10 +1,23 @@
 /**
- * `.env.local` upserts. Sets a single key without clobbering the rest of the
- * file, and makes sure the file is gitignored (the CLI never commits — it only
- * guards the human from committing a secret). See docs/onboarding-wizard.md §3.
+ * Env-file upserts (`.env.local` or `.env`). Sets a single key without
+ * clobbering the rest of the file, and makes sure the file is gitignored (the
+ * CLI never commits — it only guards the human from committing a secret).
  */
+import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+
+/** True when `file` is tracked by git in `cwd` (so a later `.gitignore` edit can't untrack it). */
+const isGitTracked = (cwd: string, file: string): boolean => {
+  try {
+    return spawnSync("git", ["ls-files", "--error-unmatch", file], { cwd, stdio: "ignore" }).status === 0;
+  } catch {
+    return false;
+  }
+};
+
+/** The env var the SDK ingest key is written under in `.env.local` (read by the `@glassray/tracing` exporter). */
+export const INGEST_KEY_ENV_VAR = "GLASSRAY_API_KEY";
 
 /** Result of an env upsert, for the caller's status line. */
 export interface EnvUpsertResult {
@@ -26,9 +39,31 @@ export interface EnvUpsertResult {
 const formatValue = (value: string): string =>
   /^[A-Za-z0-9_./:@%+=-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
 
-/** Upsert `KEY=value` into `<cwd>/.env.local`, preserving other lines; ensures it's gitignored. */
-export const upsertEnvLocal = (cwd: string, key: string, value: string): EnvUpsertResult => {
-  const file = path.join(cwd, ".env.local");
+/**
+ * Which env file to write the ingest secret into: an existing UNTRACKED
+ * `.env.local`, else an existing UNTRACKED `.env`, else a fresh `.env.local`
+ * (the gitignored convention). A git-tracked dotenv file is NEVER chosen — a
+ * committed/staged secret can't be un-tracked by the later `.gitignore` add, so
+ * it would leak. Returns `null` when the only candidate is a tracked `.env.local`
+ * (no safe target): the caller must surface the key instead of auto-writing it.
+ */
+export const detectEnvFile = (cwd: string): string | null => {
+  const localExists = existsSync(path.join(cwd, ".env.local"));
+  if (localExists && !isGitTracked(cwd, ".env.local")) return ".env.local";
+  if (existsSync(path.join(cwd, ".env")) && !isGitTracked(cwd, ".env")) return ".env";
+  // Reached only when `.env.local` is absent (→ create fresh, safe) or exists but
+  // is git-tracked (→ no safe target).
+  return localExists ? null : ".env.local";
+};
+
+/** Upsert `KEY=value` into `<cwd>/<filename>` (default `.env.local`), preserving other lines; ensures it's gitignored. */
+export const upsertEnvFile = (
+  cwd: string,
+  key: string,
+  value: string,
+  filename = ".env.local",
+): EnvUpsertResult => {
+  const file = path.join(cwd, filename);
   const line = `${key}=${formatValue(value)}`;
   let unchanged = false;
 
@@ -57,34 +92,8 @@ export const upsertEnvLocal = (cwd: string, key: string, value: string): EnvUpse
     writeFileSync(file, `${lines.join("\n").replace(/\n*$/, "")}\n`, { mode: 0o600 });
     chmodSync(file, 0o600);
   }
-  const gitignoreUpdated = ensureGitignored(cwd, ".env.local");
+  const gitignoreUpdated = ensureGitignored(cwd, filename);
   return { file, unchanged, gitignoreUpdated };
-};
-
-/** Read KEY→value pairs from the repo's env files (`.env` then `.env.local`; later wins). Values are unquoted. */
-export const readDotenvValues = (cwd: string): Map<string, string> => {
-  const out = new Map<string, string>();
-  for (const file of [".env", ".env.local"]) {
-    let text: string;
-    try {
-      text = readFileSync(path.join(cwd, file), "utf8");
-    } catch {
-      continue;
-    }
-    for (const line of text.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (trimmed === "" || trimmed.startsWith("#")) continue;
-      const eq = trimmed.indexOf("=");
-      if (eq <= 0) continue;
-      const key = trimmed.slice(0, eq).replace(/^export\s+/, "").trim();
-      let value = trimmed.slice(eq + 1).trim();
-      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-      }
-      out.set(key, value);
-    }
-  }
-  return out;
 };
 
 /** Append `entry` to `<cwd>/.gitignore` if absent. Returns whether the file was changed. */

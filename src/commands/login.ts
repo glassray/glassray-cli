@@ -3,14 +3,48 @@
  * grant, then swap the access token for a durable org API key at
  * `/api/public/setup/exchange`. `--api-key` (or `GLASSRAY_TOKEN`) skips pairing
  * for CI/headless. Also exports `ensurePaired`, the shared "make sure we have a
- * usable org key" helper the setup orchestrator reuses. See §3.
+ * usable org key" helper the setup launcher reuses.
  */
 import { getStoredCredential, resolveApiKey, setStoredCredential, type StoredCredential } from "../lib/config.js";
 import { boolFlag, parseCommand, strFlag, type Context } from "../lib/context.js";
 import { runDeviceAuth } from "../lib/device-auth.js";
 import { CliError } from "../lib/errors.js";
 import { exchange, getConfig, getStatus } from "../lib/http.js";
-import { bold, bullet, card, dim, link, PALETTE, paint, printData, success } from "../lib/ui.js";
+import { prompt } from "../lib/prompt.js";
+import type { SetupExchangeResponse } from "../lib/types.js";
+import { bold, bullet, card, dim, info, link, PALETTE, paint, printData, success } from "../lib/ui.js";
+
+/** Ask for a new organization's name on a fresh sign-up. TTY-only (the caller gates on `isTTY`). */
+const promptOrgName = async (): Promise<string> => {
+  info("Looks like you're new here — let's name your organization first.");
+  return prompt("Organization name:");
+};
+
+/**
+ * Exchange the device-grant token for an org key. On a fresh sign-up the user
+ * has no organization yet and the server replies `org-name-required`; on a TTY
+ * we ask for a name and retry, creating the org — the browser wizard then just
+ * does the onboarding. (Non-TTY re-throws the guidance to pass `--org-name`.)
+ */
+const exchangeWithOrgPrompt = async (
+  ctx: Context,
+  accessToken: string,
+  opts: { orgName?: string; org?: string },
+): Promise<SetupExchangeResponse> => {
+  const req = {
+    ...(opts.orgName ? { orgName: opts.orgName } : {}),
+    ...(opts.org ? { organizationId: opts.org } : {}),
+  };
+  try {
+    return await exchange(ctx.endpoint, accessToken, req);
+  } catch (err) {
+    if (err instanceof CliError && err.code === "org-name-required" && process.stdin.isTTY) {
+      const orgName = await promptOrgName();
+      return exchange(ctx.endpoint, accessToken, { ...req, orgName });
+    }
+    throw err;
+  }
+};
 
 /** How the CLI became (or already was) paired. */
 export interface PairResult extends StoredCredential {
@@ -62,9 +96,9 @@ export const ensurePaired = async (
   }
   const config = await getConfig(ctx.endpoint);
   const grant = await runDeviceAuth(config, { open: opts.open });
-  const result = await exchange(ctx.endpoint, grant.accessToken, {
-    ...(opts.orgName ? { orgName: opts.orgName } : {}),
-    ...(opts.org ? { organizationId: opts.org } : {}),
+  const result = await exchangeWithOrgPrompt(ctx, grant.accessToken, {
+    orgName: opts.orgName,
+    org: opts.org,
   });
   setStoredCredential(ctx.endpoint, {
     organizationId: result.organizationId,

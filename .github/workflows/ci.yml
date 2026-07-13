@@ -30,6 +30,7 @@ jobs:
       # never falls back to fetching an unrelated package from the registry.
       - run: npm run typecheck
       - run: npm run lint
+      - run: npm test
       - run: npm run build
       # The built binary must at least load and report its version.
       - run: node dist/bin.js --version

@@ -24,7 +24,7 @@ export const renderStatusCard = (
     `  ${bullet(status.recentTraceCount > 0 ? "ok" : status.traceCount > 0 ? "warn" : "down")} ${bold(orgName ?? status.organizationId)} — ${status.traceCount} traces (${status.recentTraceCount} in last hour)`,
   ];
   if (status.sources.length === 0) {
-    lines.push(`    ${dim("no trace sources connected yet — run")} glassray connect otlp`);
+    lines.push(`    ${dim("no trace sources connected yet — run")} glassray setup`);
   }
   for (const s of status.sources) {
     const health = s.enabled ? (s.lastError ? bullet("warn") : bullet("ok")) : bullet("down");

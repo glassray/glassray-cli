@@ -1,7 +1,7 @@
 /**
  * A generic "poll until a condition holds, with a timeout" helper used by the
- * `--wait` flows (connect github/slack, verify). Every wait in the CLI has a
- * bounded budget and a named diagnosis on timeout (docs/onboarding-wizard.md §10).
+ * wait flows (the setup onboarding poll, verify). Every wait in the CLI has a
+ * bounded budget and a named diagnosis on timeout.
  */
 
 /** Options for `pollUntil`. */

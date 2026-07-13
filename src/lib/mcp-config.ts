@@ -2,10 +2,9 @@
  * `.mcp.json` management — registers (or removes) the Glassray remote MCP server
  * so the customer's AI clients keep the 28-tool cloud surface after setup. Merges
  * into an existing file without disturbing other servers. Also reports which AI
- * clients are present in the repo (`.claude/`, `.cursor/`). See
- * docs/onboarding-wizard.md §2.
+ * clients are present in the repo (`.claude/`, `.cursor/`).
  *
- * SECURITY (PR #600 review): the raw org key is NEVER written into `.mcp.json` —
+ * SECURITY: the raw org key is NEVER written into `.mcp.json` —
  * repos commonly commit that file, which would persist a writable bearer token in
  * source control. The Authorization header is written as `Bearer ${GLASSRAY_TOKEN}`
  * (Claude Code expands `${VAR}` from the environment at load time); the actual key

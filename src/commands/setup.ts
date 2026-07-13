@@ -1,19 +1,19 @@
 /**
- * `glassray setup` — the orchestrator. Runs every discrete step in order,
- * each idempotent / skip-if-already-done, ending at the verify gate (a real
- * trace observed). Non-TTY never prompts; `--default` auto-accepts the plan.
- * See docs/onboarding-wizard.md §10 for the target DX.
- *
- * Every step is also a standalone command — this just sequences them, sharing
- * the lib layer directly so the flow controls its own spinners and report.
+ * `glassray setup` — the v3 launcher. It is NOT a terminal orchestrator: it
+ * signs you in, hands the whole onboarding (GitHub · trace sources · Slack) to
+ * the browser wizard, mirrors the wizard's per-step status back to the terminal,
+ * and then does the one thing that must be local — wiring the SDK into your code
+ * (only when the SDK path was chosen or traces were skipped) — before the verify
+ * gate. Browser-only; CI uses the granular subcommands with `--api-key`.
  */
 import path from "node:path";
-import readline from "node:readline/promises";
 import { boolFlag, parseCommand, resolveTimeoutSec, strFlag, type Context } from "../lib/context.js";
-import { detect, summarizeDetect } from "../lib/detect.js";
-import { CliError } from "../lib/errors.js";
-import { upsertEnvLocal } from "../lib/env-file.js";
+import { openBrowser } from "../lib/browser.js";
+import { detect } from "../lib/detect.js";
+import { CliError, EXIT } from "../lib/errors.js";
+import { detectEnvFile, INGEST_KEY_ENV_VAR, upsertEnvFile } from "../lib/env-file.js";
 import { connectOtlp, getConfig, getStatus } from "../lib/http.js";
+import { confirm } from "../lib/prompt.js";
 import { buildInstrumentPrompt } from "../lib/instrument-prompt.js";
 import { addMcpServer } from "../lib/mcp-config.js";
 import { pollUntil } from "../lib/poll.js";
@@ -21,6 +21,8 @@ import { track } from "../lib/telemetry.js";
 import type { SetupStatusResponse } from "../lib/types.js";
 import {
   banner,
+  bell,
+  blank,
   bold,
   bullet,
   card,
@@ -36,65 +38,69 @@ import {
   success,
   warn,
 } from "../lib/ui.js";
-import { INGEST_KEY_ENV_VAR } from "./connect.js";
 import { performInstrument } from "./instrument.js";
 import { ensurePaired } from "./login.js";
 import { tokenExportHint } from "./mcp.js";
 
-/** True when a trace has landed (verify gate signal). */
+/** Generous budget for the human-paced browser wizard poll (30 min). Not tied to `--timeout`. */
+const ONBOARDING_WAIT_SEC = 1800;
+
+/** True when a real trace has landed (the verify gate). */
 const tracesLanded = (s: SetupStatusResponse): boolean =>
   s.recentTraceCount >= 1 || s.traceCount >= 1 || s.sources.some((src) => src.traceCount > 0);
 
-/** Ask a yes/no question on stderr (default yes). Only called on a TTY. */
-const confirm = async (question: string): Promise<boolean> => {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-  const answer = (await rl.question(`  ${question} [Y/n] `)).trim().toLowerCase();
-  rl.close();
-  return answer === "" || answer === "y" || answer === "yes";
+/** A one-line live summary of the wizard's per-step progress, for the waiting spinner. */
+const liveStatusLine = (s: SetupStatusResponse): string => {
+  const mark = (ok: boolean): string => (ok ? paint("✓", PALETTE.brandBright) : dim("·"));
+  return `GitHub ${mark(s.github === "connected")}   Slack ${mark(s.slack === "connected")}   Traces ${mark(s.sources.length > 0)}`;
 };
 
-/** A plain-language, one-line description of what setup is about to do. */
-const planSentence = (r: ReturnType<typeof detect>): string => {
-  if (r.tracing.glassraySdk) {
-    return "You already use @glassray/tracing — I'll make sure it points at this account.";
-  }
-  if (r.tracing.openTelemetry) {
-    return "The plan: point your existing OpenTelemetry setup at Glassray so your agent's runs show up here.";
-  }
-  return "The plan: add Glassray's tracing SDK so every run of your agent shows up here.";
+/** Whether any browser step has landed yet — until then we don't show the per-step breakdown. */
+const onboardingStarted = (s: SetupStatusResponse): boolean =>
+  s.github === "connected" || s.slack === "connected" || s.sources.length > 0;
+
+/** Print the completed-onboarding status as a compact, data-rich card. */
+const printOnboardingStatus = (s: SetupStatusResponse): void => {
+  const yn = (ok: boolean): string => (ok ? "connected" : "not connected");
+  const sourceLabel =
+    s.sources.length > 0
+      ? `${s.sources.length} source${s.sources.length === 1 ? "" : "s"}`
+      : s.tracePath === "none"
+        ? "skipped"
+        : "none";
+  card([
+    `  ${bullet("ok")} Onboarding complete`,
+    `    ${dim("GitHub")}     ${yn(s.github === "connected")}`,
+    `    ${dim("Slack")}      ${yn(s.slack === "connected")}`,
+    `    ${dim("Traces")}     ${sourceLabel}${s.tracePath === "pull" ? " (existing provider)" : s.tracePath === "otlp" ? " (SDK)" : ""}`,
+  ]);
 };
 
-/** The `setup` command. */
+/** The `setup` command — the v3 launcher. */
 export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   const { values } = parseCommand(args, {
-    default: { type: "boolean" },
-    yes: { type: "boolean" },
     "org-name": { type: "string" },
     org: { type: "string" },
     "no-open": { type: "boolean" },
     "prompt-only": { type: "boolean" },
     run: { type: "boolean" },
     "skip-instrument": { type: "boolean" },
-    "skip-github": { type: "boolean" },
-    "skip-slack": { type: "boolean" },
-    wait: { type: "boolean" },
     timeout: { type: "string" },
   });
-  const autoYes = boolFlag(values, "default") || boolFlag(values, "yes");
   const open = !boolFlag(values, "no-open");
-  const wait = boolFlag(values, "wait");
-  const timeoutSec = resolveTimeoutSec(values, 300);
   const interactive = process.stdin.isTTY === true;
+  const verifyWaitSec = resolveTimeoutSec(values, 300);
 
   banner("Glassray setup", "Watch your agent, catch what breaks, ship the fix.");
   track(ctx, { phase: "setup", step: "start" });
 
-  // ── preflight ────────────────────────────────────────────────────────────
+  // ── preflight ──────────────────────────────────────────────────────────────
   const config = await getConfig(ctx.endpoint);
+  const appUrl = config.appUrl.replace(/\/+$/, "");
   success("Connected to Glassray");
   track(ctx, { phase: "setup", step: "preflight" });
 
-  // ── pair ─────────────────────────────────────────────────────────────────
+  // ── sign in (device grant → org key) ─────────────────────────────────────────
   const cred = await ensurePaired(ctx, {
     orgName: strFlag(values, "org-name"),
     org: strFlag(values, "org"),
@@ -103,69 +109,137 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   success(`Signed in to ${bold(cred.orgName)}${cred.userEmail ? ` as ${dim(cred.userEmail)}` : ""}`);
   track(ctx, { phase: "setup", step: "paired" });
 
-  // ── look at the repo + explain the plan ─────────────────────────────────────
-  const report = detect();
-  info(`Your repo — ${summarizeDetect(report)}`);
-  info(planSentence(report));
-  if (report.recommended.alternatives.length > 0 && !report.tracing.glassraySdk) {
-    detail(
-      `already on ${report.recommended.alternatives.join(" / ")}? connect it instead with \`glassray connect <provider>\``,
-    );
-  }
-  if (interactive && !autoYes) {
-    if (!(await confirm("Sound good?"))) {
-      warn("No problem — nothing was changed.");
-      return;
-    }
-  }
-  track(ctx, { phase: "setup", step: "planned", props: { path: report.recommended.path } });
-
-  // ── connect ingestion (OTLP push — the recommended path) ───────────────────
+  // ── onboarding: hand off to the browser wizard, mirror status ────────────────
   let status = await getStatus(ctx.endpoint, cred.apiKey);
-  let otlpEndpoint = `${config.appUrl.replace(/\/+$/, "")}/api/public/otel/v1/traces`;
-  const hasPushSource = status.sources.some((s) => /otlp|otel|push|sdk/i.test(s.provider));
-  if (hasPushSource) {
-    success("Your account is already set up to receive traces");
-  } else {
-    const spin = spinner("Setting up where your traces will land…");
-    const res = await connectOtlp(ctx.endpoint, cred.apiKey, { displayName: path.basename(report.cwd) || "agent" });
-    otlpEndpoint = res.endpoint;
-    if (res.ingestKey) {
-      const written = upsertEnvLocal(process.cwd(), INGEST_KEY_ENV_VAR, res.ingestKey);
-      spin.succeed(`Ready to receive traces · key saved to ${written.file}`);
-    } else {
-      // Idempotent retry: the source already existed, so the key can't be re-shown.
-      spin.succeed("Your account is already set up to receive traces");
-      warn(`the ingest key can't be shown again — if ${INGEST_KEY_ENV_VAR} is missing from .env.local, rotate it in the dashboard`);
+  if (!status.onboardingCompleted) {
+    // Browser-only: the wizard is a browser flow — a non-interactive session
+    // (CI / no browser) cannot drive it. Point such callers at the subcommands.
+    if (!interactive) {
+      throw new CliError(
+        "`glassray setup` needs a browser to finish first-time onboarding — there's no fully headless first run.",
+        EXIT.FAILURE,
+        "onboarding-needs-browser",
+        `Finish onboarding once where you can open a browser — run \`glassray setup\` there, or open ${appUrl} and complete it. After that CI can re-run \`glassray setup --api-key\`: it finishes locally without a browser — minting the ingest key into .env.local on the SDK path, or just verifying an existing-provider source. (\`instrument --prompt-only\` / \`verify --wait\` alone can't: neither creates a source or mints a key.) Agents on the MCP server can instead create a source with the connect_otlp_source / connect_pull_source tools (not CLI commands).`,
+      );
     }
-  }
-  track(ctx, { phase: "setup", step: "connected" });
+    const wizardUrl = `${appUrl}/api/setup/enter?org=${encodeURIComponent(cred.organizationId)}&src=cli`;
+    blank();
+    info("Now finish setup in your browser — connect GitHub, your traces, and Slack.");
+    if (open) openBrowser(wizardUrl);
+    info(`Opening ${link(wizardUrl)}`);
+    detail("(or open that URL on any device)");
 
-  // ── instrument (add tracing to the customer's code) ─────────────────────────
-  if (boolFlag(values, "skip-instrument")) {
-    info("Skipped adding tracing (--skip-instrument)");
-  } else if (report.tracing.glassraySdk) {
-    success("Your code already sends traces with @glassray/tracing");
+    const spin = spinner("Waiting for you in the browser…");
+    const r = await pollUntil(
+      () => getStatus(ctx.endpoint, cred.apiKey),
+      (s) => s.onboardingCompleted,
+      {
+        timeoutSec: ONBOARDING_WAIT_SEC,
+        intervalSec: 3,
+        onTick: (s) =>
+          spin.update(
+            onboardingStarted(s)
+              ? `In your browser…   ${liveStatusLine(s)}`
+              : "Waiting for you to finish setup in your browser…",
+          ),
+      },
+    );
+    spin.stop();
+    if (!r.satisfied) {
+      throw new CliError(
+        "Didn't see onboarding finish in the browser. Re-run `glassray setup` once you've completed those steps.",
+      );
+    }
+    status = r.value;
+    bell(); // The browser step is done — nudge the user's attention back to the terminal.
+    printOnboardingStatus(status);
+    track(ctx, { phase: "setup", step: "onboarded" });
   } else {
-    const prompt = buildInstrumentPrompt({
-      endpoint: otlpEndpoint,
-      ingestKeyEnvVar: INGEST_KEY_ENV_VAR,
-      detect: report,
+    success("You're already onboarded — finishing up locally.");
+  }
+
+  // ── local SDK wiring — only when the SDK path was chosen (or traces skipped) ──
+  // A `pull` source (existing provider) needs no code change. The ingest key is
+  // minted HERE, into `.env.local`, so the terminal (not the browser) owns it —
+  // it lands where the SDK reads it and is never surfaced in the UI.
+  blank();
+  const report = detect();
+  let otlpEndpoint = `${appUrl}/api/public/otel/v1/traces`;
+  if (status.tracePath === "pull") {
+    success("You're pulling traces from an existing provider — no code change needed here.");
+  } else {
+    // tracePath is `otlp` (SDK chosen) or `none` (traces skipped) → set up push
+    // ingestion. The ingest key is minted HERE, into `.env.local`, so the
+    // terminal (not the browser) owns it. This ALWAYS runs on the SDK path —
+    // `--skip-instrument` and an already-present @glassray/tracing only gate the
+    // code-editing prompt below, NEVER the key/source (else an instrumented repo
+    // with no key/source would be a dead end).
+    const spin = spinner("Setting up where your traces will land…");
+    const res = await connectOtlp(ctx.endpoint, cred.apiKey, {
+      displayName: path.basename(report.cwd) || "agent",
     });
-    // Default: hand over the prompt (clipboard) and ask before running Claude.
-    // `--default`/`--run` runs it unattended; `--prompt-only` always just prints.
-    await performInstrument({
-      prompt,
-      cwd: process.cwd(),
-      json: ctx.json,
-      forceRun: autoYes || boolFlag(values, "run"),
-      promptOnly: boolFlag(values, "prompt-only"),
-    });
+    otlpEndpoint = res.endpoint;
+    spin.succeed("Trace ingestion ready");
+    if (res.ingestKey) {
+      // Show the key (it's the customer's own, on their own machine) — the CLI
+      // doesn't touch your files unless you say so.
+      blank();
+      card([
+        `  ${bullet("ok")} Here's your ingest key ${dim("— your agent sends traces with this")}`,
+        `    ${dim("Env var")}   ${INGEST_KEY_ENV_VAR}`,
+        `    ${dim("Key")}       ${res.ingestKey}`,
+        `    ${dim("Endpoint")}  ${otlpEndpoint}`,
+      ]);
+      // Offer to save it into the repo's env file — writes ONLY if you say yes.
+      const envFile = detectEnvFile(process.cwd());
+      if (envFile === null) {
+        // The only `.env.local` is git-tracked — auto-saving would commit the
+        // secret, and `.gitignore` can't un-track it. The key is shown above, so
+        // surface it instead of writing (this is the non-interactive path too).
+        warn(
+          `not auto-saving ${INGEST_KEY_ENV_VAR} — your .env.local is git-tracked (a committed secret can't be un-tracked). Run \`git rm --cached .env.local\` + gitignore it, or set ${INGEST_KEY_ENV_VAR} yourself.`,
+        );
+      } else {
+        const save = interactive ? await confirm(`Save ${INGEST_KEY_ENV_VAR} to ${envFile}?`) : true;
+        if (save) {
+          const written = upsertEnvFile(process.cwd(), INGEST_KEY_ENV_VAR, res.ingestKey, envFile);
+          success(`Saved to ${written.file} ${dim("(gitignored — your SDK reads it from here)")}`);
+        } else {
+          detail(`no problem — pop ${INGEST_KEY_ENV_VAR} into your env yourself and you're set`);
+        }
+      }
+    } else {
+      // Idempotent retry (or a source minted elsewhere): the key can't be re-shown.
+      warn(
+        `can't show the ingest key again — if ${INGEST_KEY_ENV_VAR} isn't set, rotate it in the dashboard`,
+      );
+    }
+
+    // Wire the SDK into the code — independently skippable (the key is already set).
+    if (boolFlag(values, "skip-instrument")) {
+      info(
+        `Skipped wiring the SDK into your code (--skip-instrument) — the ingest key is set; add @glassray/tracing yourself and read ${INGEST_KEY_ENV_VAR}.`,
+      );
+    } else if (report.tracing.glassraySdk) {
+      success("Your code already sends traces with @glassray/tracing");
+    } else {
+      const prompt = buildInstrumentPrompt({
+        endpoint: otlpEndpoint,
+        ingestKeyEnvVar: INGEST_KEY_ENV_VAR,
+        detect: report,
+      });
+      await performInstrument({
+        prompt,
+        cwd: process.cwd(),
+        json: ctx.json,
+        forceRun: boolFlag(values, "run"),
+        promptOnly: boolFlag(values, "prompt-only"),
+      });
+    }
   }
   track(ctx, { phase: "setup", step: "instrumented" });
 
-  // ── connect the customer's AI assistant to Glassray's tools ─────────────────
-  // The `.mcp.json` bearer is `${GLASSRAY_TOKEN}` env expansion — no secret in the file.
+  // ── register Glassray's tools in the repo (local, idempotent) ────────────────
   const mcp = addMcpServer(process.cwd(), config.mcpUrl);
   success(
     mcp.changed
@@ -175,40 +249,15 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   detail(`install the Glassray skill with \`glassray init\`, and export the token: ${tokenExportHint()}`);
   track(ctx, { phase: "setup", step: "mcp" });
 
-  // ── GitHub / Slack (optional, browser hand-offs) ────────────────────────────
-  status = await getStatus(ctx.endpoint, cred.apiKey);
-  const needGithub = !boolFlag(values, "skip-github") && status.github !== "connected";
-  const needSlack = !boolFlag(values, "skip-slack") && status.slack !== "connected";
-  if (needGithub || needSlack) {
-    info("Optional — open these to finish the loop:");
-    if (needGithub) info(`  → GitHub (read-only, so Glassray can suggest fixes): ${link(`${config.appUrl}/api/github/connect`)}`);
-    if (needSlack) info(`  → Slack (get pinged the moment something breaks): ${link(`${config.appUrl}/connect/slack`)}`);
-  }
-  if (wait && (needGithub || needSlack)) {
-    const spin = spinner("waiting for you to connect GitHub / Slack…");
-    const r = await pollUntil(
-      () => getStatus(ctx.endpoint, cred.apiKey),
-      (s) =>
-        (boolFlag(values, "skip-github") || s.github === "connected") &&
-        (boolFlag(values, "skip-slack") || s.slack === "connected"),
-      { timeoutSec, intervalSec: 4 },
-    );
-    if (r.satisfied) spin.succeed("GitHub and Slack connected");
-    else {
-      spin.stop();
-      detail("not connected yet — you can finish later with `glassray connect github` / `glassray connect slack`");
-    }
-  }
-  track(ctx, { phase: "setup", step: "integrations" });
-
-  // ── verify: confirm a real trace actually lands ─────────────────────────────
+  // ── verify: confirm a real trace actually lands ──────────────────────────────
+  blank();
   status = await getStatus(ctx.endpoint, cred.apiKey);
   let verified = tracesLanded(status);
-  if (!verified && wait) {
+  if (!verified) {
     info("Last step — run your agent once so we can confirm traces are arriving.");
     const spin = spinner("Watching for your first trace…");
     const r = await pollUntil(() => getStatus(ctx.endpoint, cred.apiKey), tracesLanded, {
-      timeoutSec,
+      timeoutSec: verifyWaitSec,
       onTick: (s, elapsed) => spin.update(`Watching for your first trace… ${s.traceCount} seen (${elapsed}s)`),
     });
     spin.stop();
@@ -217,12 +266,14 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   }
   track(ctx, { phase: "setup", step: verified ? "verified" : "unverified" });
 
-  // ── report ──────────────────────────────────────────────────────────────────
+  // ── report ───────────────────────────────────────────────────────────────────
   if (ctx.json) {
     printData({
       organizationId: cred.organizationId,
       orgName: cred.orgName,
       verified,
+      onboardingCompleted: status.onboardingCompleted,
+      tracePath: status.tracePath,
       sources: status.sources.length,
       traceCount: status.traceCount,
       github: status.github,
