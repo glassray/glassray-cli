@@ -54,8 +54,34 @@ const HANDLERS: Record<string, Handler> = {
   upgrade: cmdUpgrade,
 };
 
-/** Value-taking global flags — used to find the command word past their values. */
-const VALUE_GLOBALS = new Set(["--endpoint", "--api-key", "--port"]);
+/** All global flags as CLI tokens, derived from GLOBAL_OPTIONS (one source of truth). */
+const GLOBAL_FLAGS = new Set(Object.keys(GLOBAL_OPTIONS).map((k) => `--${k}`));
+
+/** Value-taking global flags — used to skip their values when locating the command word. */
+const VALUE_GLOBALS = new Set(
+  Object.entries(GLOBAL_OPTIONS)
+    .filter(([, opt]) => opt.type === "string")
+    .map(([k]) => `--${k}`),
+);
+
+/**
+ * Drop the global flags already folded into `ctx` from a command's args, so a
+ * global placed before a subcommand's verb (`connect --json otlp`) isn't read as
+ * the verb. Command-specific flags are left untouched.
+ */
+const stripGlobalFlags = (args: string[]): string[] => {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] ?? "";
+    const name = arg.startsWith("--") ? (arg.split("=")[0] ?? arg) : arg;
+    if (GLOBAL_FLAGS.has(name)) {
+      if (VALUE_GLOBALS.has(name) && !arg.includes("=")) i += 1; // skip a separate-token value
+      continue;
+    }
+    out.push(arg);
+  }
+  return out;
+};
 
 /** Locate the command word: the first token that isn't a flag or a value-flag's value. */
 const findCommandIndex = (argv: string[]): number => {
@@ -100,7 +126,7 @@ const main = async (): Promise<void> => {
 
   setJsonMode(probe.values.json === true);
   const ctx = buildContext(probe.values);
-  const rest = argv.slice(commandIndex + 1);
+  const rest = stripGlobalFlags(argv.slice(commandIndex + 1));
 
   if (command === "start") {
     await cmdStart(ctx, rest);

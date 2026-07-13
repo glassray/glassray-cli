@@ -100,8 +100,12 @@ export const cmdStart = async (ctx: Context, args: string[]): Promise<void> => {
     ? [process.execPath, [localBin, "start", ...passthrough]]
     : ["npx", ["--yes", "@glassray/coach", "start", ...passthrough]];
 
+  // The `npx` fallback is a `.cmd` shim on Windows, which Node can't exec without
+  // a shell; the localBin path runs node directly and never needs one.
+  const useShell = !localBin && process.platform === "win32";
+
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(cmd, spawnArgs, { stdio: "inherit" });
+    const child = spawn(cmd, spawnArgs, { stdio: "inherit", shell: useShell });
     child.on("error", (err) =>
       reject(new CliError(`could not start Coach (${err.message}) — is npx available?`, 2)),
     );

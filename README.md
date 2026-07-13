@@ -1,8 +1,8 @@
 ![Glassray](https://glassray.ai/docs/images/glassray_cover.jpeg)
 
-# glassray
+# @glassray/cli
 
-[![npm](https://img.shields.io/npm/v/glassray.svg)](https://www.npmjs.com/package/glassray)
+[![npm](https://img.shields.io/npm/v/@glassray/cli.svg)](https://www.npmjs.com/package/@glassray/cli)
 
 One CLI for [Glassray](https://glassray.ai): cloud setup **and** the local Coach experience.
 
@@ -20,16 +20,16 @@ and cloud are the same nouns in two environments.
 Requires **Node 20.6+**. Run it once, or install it:
 
 ```sh
-npx glassray setup            # no install; runs the whole onboarding flow
+npx @glassray/cli setup            # no install; runs the whole onboarding flow
 
-npm i -g glassray             # or install it, for `glassray` on your PATH
+npm i -g @glassray/cli             # or install it, for `glassray` on your PATH
 glassray setup
 ```
 
 `setup` is the orchestrator. It runs every step in order, each one idempotent, ending at the
 verify gate. You do exactly two things in a browser: approve the pairing, and click the
 GitHub/Slack consent screens. Everything else is automatic. Re-running is always safe, because
-each step checks current state and skips what's done, so *"just run it again"* is the universal
+each step checks current state and skips what's done, so _"just run it again"_ is the universal
 recovery.
 
 Nothing of your source code transits Glassray. The CLI edits files locally (or hands a prompt to
@@ -79,14 +79,14 @@ glassray upgrade               How to self-update
 
 ## Global flags and environment
 
-| Flag | Env | Meaning |
-| --- | --- | --- |
-| `--endpoint <url>` | `GLASSRAY_ENDPOINT` | Target deployment (default `https://app.glassray.ai`). |
-| `--api-key <key>` | `GLASSRAY_TOKEN` | Org key for CI/headless. Precedence: flag, then env, then stored credential. |
-| `--json` | (none) | Machine output on stdout (status chrome stays on stderr). |
-| `--port <n>` | `GLASSRAY_PORT` | Local Coach port (default `5899`). |
-| `--no-telemetry` | `GLASSRAY_NO_TELEMETRY` | Opt out of best-effort run telemetry. |
-| `--debug` | (none) | Verbose output and stack traces. |
+| Flag               | Env                     | Meaning                                                                      |
+| ------------------ | ----------------------- | ---------------------------------------------------------------------------- |
+| `--endpoint <url>` | `GLASSRAY_ENDPOINT`     | Target deployment (default `https://app.glassray.ai`).                       |
+| `--api-key <key>`  | `GLASSRAY_TOKEN`        | Org key for CI/headless. Precedence: flag, then env, then stored credential. |
+| `--json`           | (none)                  | Machine output on stdout (status chrome stays on stderr).                    |
+| `--port <n>`       | `GLASSRAY_PORT`         | Local Coach port (default `5899`).                                           |
+| `--no-telemetry`   | `GLASSRAY_NO_TELEMETRY` | Opt out of best-effort run telemetry.                                        |
+| `--debug`          | (none)                  | Verbose output and stack traces.                                             |
 
 Other environment variables: `GLASSRAY_WORKOS_API` overrides the WorkOS device-auth base
 (defaults to `https://api.workos.com`); `XDG_CONFIG_HOME` relocates the config directory;
@@ -97,7 +97,7 @@ check.
 > carries `mcp:read` + `mcp:write` and resolves your account). It is deliberately **distinct**
 > from `GLASSRAY_API_KEY`, the SDK's per-source **ingest key** that the CLI writes into your
 > repo's `.env.local`, so a shell that exports one can never be mistaken for the other. The CLI
-> *reads* `GLASSRAY_TOKEN`; it only ever *writes* `GLASSRAY_API_KEY`.
+> _reads_ `GLASSRAY_TOKEN`; it only ever _writes_ `GLASSRAY_API_KEY`.
 
 **Output discipline.** stdout is data (JSON and cards); stderr is status. Exit codes: `0` ok,
 `1` handled failure, `2` a dependency was unreachable. Non-TTY sessions never prompt, and every

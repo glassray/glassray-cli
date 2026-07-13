@@ -13,13 +13,13 @@ extracted it becomes a plain npm package (the commands below map 1:1 to `npm run
 
 ## Commands
 
-From the monorepo root (or drop `pnpm --filter glassray` once extracted):
+From the monorepo root (or drop `pnpm --filter @glassray/cli` once extracted):
 
 ```sh
-pnpm --filter glassray dev        # tsx src/bin.ts — run straight from TypeScript
-pnpm --filter glassray build      # tsup → dist/bin.js (+ .map), shebang-marked executable
-pnpm --filter glassray typecheck  # tsc --noEmit
-pnpm --filter glassray lint       # eslint .
+pnpm --filter @glassray/cli dev        # tsx src/bin.ts — run straight from TypeScript
+pnpm --filter @glassray/cli build      # tsup → dist/bin.js (+ .map), shebang-marked executable
+pnpm --filter @glassray/cli typecheck  # tsc --noEmit
+pnpm --filter @glassray/cli lint       # eslint .
 
 node dist/bin.js --help           # run the built binary locally
 node dist/bin.js setup --endpoint http://localhost:3000   # point at a local Glassray
@@ -79,7 +79,7 @@ the full table — the key ones for local dev:
 
 ## Publishing
 
-Published to npm as the unscoped [`glassray`](https://www.npmjs.com/package/glassray) with a
+Published to npm as [`@glassray/cli`](https://www.npmjs.com/package/@glassray/cli) with a
 `glassray` bin. `dist/` is a build artifact (gitignored), so the `prepack` script runs `tsup`
 before packing — the published tarball always carries a fresh build. The `files` allowlist ships
 `dist/bin.js` (the sourcemap is excluded — nothing loads it at runtime), `assets/`, `README.md`,
@@ -100,8 +100,8 @@ The release wiring is in place (mirroring the SDK / Coach approach):
 - **`.github/workflows/ci.yml`** — build + lint + typecheck on Node 20/22/24 for every push/PR,
   from the committed `package-lock.json`.
 
-One-time setup before the first publish: **claim the unscoped `glassray` npm name**, and
+One-time setup before the first publish: **claim the `@glassray/cli` npm name**, and
 configure the package for **npm trusted publishing** pointing at this repo + `release.yml`
 (until then, `release.yml` is inert scaffolding).
 
-Smoke-test a release in a clean directory: `npx glassray@latest --help`.
+Smoke-test a release in a clean directory: `npx @glassray/cli@latest --help`.

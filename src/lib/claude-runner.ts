@@ -25,7 +25,18 @@ export const hasClaude = (): boolean => {
  */
 export const runClaude = (prompt: string, cwd: string = process.cwd()): Promise<number> =>
   new Promise((resolve, reject) => {
-    const child = spawn("claude", ["-p", prompt], { cwd, stdio: "inherit" });
+    // Pass the prompt over stdin (`claude -p` reads it) instead of as an argv
+    // element, so there is nothing for a shell to re-parse. `shell: true` on
+    // Windows lets the npm-installed `claude.cmd` shim resolve — Node refuses to
+    // exec a `.cmd` directly without a shell, which otherwise ENOENTs even though
+    // `hasClaude()` (via `where`) reports it available.
+    const child = spawn("claude", ["-p"], {
+      cwd,
+      stdio: ["pipe", "inherit", "inherit"],
+      shell: process.platform === "win32",
+    });
     child.on("error", reject);
     child.on("exit", (code) => resolve(code ?? 0));
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(prompt);
   });

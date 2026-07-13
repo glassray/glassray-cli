@@ -4,7 +4,7 @@
  * color-capability detection (truecolor → 256 → 16 → plain, honoring NO_COLOR /
  * FORCE_COLOR / dumb / pipes), the brand palette, the pixel-exact Glassray mark,
  * text primitives, clickable OSC-8 links, the branded-card writers, a small
- * spinner, and the npm update check (retargeted to the unscoped `glassray`
+ * spinner, and the npm update check (retargeted to the `@glassray/cli`
  * package).
  *
  * Output discipline: cards + machine JSON go to STDOUT; all status, progress,
@@ -359,7 +359,7 @@ const stripAnsiLength = (s: string): number =>
   // eslint-disable-next-line no-control-regex
   s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").length;
 
-// ── update check (retargeted to the unscoped `glassray` package) ───────────────
+// ── update check (retargeted to the `@glassray/cli` package) ───────────────
 
 /** Base config dir for the CLI (mirrors config.ts without importing it, to stay cycle-free). */
 const cacheDir = (): string =>
@@ -373,8 +373,8 @@ const updateCachePath = (): string => path.join(cacheDir(), "update-check.json")
 /** How long a registry answer stays fresh before a background refresh (24 h). */
 const UPDATE_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** The npm registry endpoint for the unscoped `glassray` package. */
-const REGISTRY_URL = "https://registry.npmjs.org/glassray/latest";
+/** The npm registry endpoint for the `@glassray/cli` package. */
+const REGISTRY_URL = "https://registry.npmjs.org/@glassray%2Fcli/latest";
 
 /** True when the user (or the environment) opted out of update checks entirely. */
 export const updateCheckOptedOut = (): boolean =>
@@ -420,7 +420,7 @@ export const readUpdateNotice = (): string | null => {
   const cache = readUpdateCache();
   if (typeof cache?.latest !== "string") return null;
   if (compareVersions(cache.latest, VERSION) <= 0) return null;
-  return `${paint("▲", PALETTE.acid)} Update available ${VERSION} → ${bold(cache.latest)} — run ${paint("npm i -g glassray", PALETTE.brand)}`;
+  return `${paint("▲", PALETTE.acid)} Update available ${VERSION} → ${bold(cache.latest)} — run ${paint("npm i -g @glassray/cli", PALETTE.brand)}`;
 };
 
 /** The detached-child refresh script (runs as `node -e <script> <cachePath>`). */

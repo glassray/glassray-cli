@@ -11,7 +11,7 @@ export const cmdUpgrade = async (ctx: Context, args: string[]): Promise<void> =>
   parseCommand(args);
   const latest = await fetchLatestVersion();
   const outdated = latest !== null && compareVersions(latest, VERSION) > 0;
-  const command = "npm install -g glassray@latest";
+  const command = "npm install -g @glassray/cli@latest";
 
   if (ctx.json) {
     printData({ current: VERSION, latest, outdated, command });

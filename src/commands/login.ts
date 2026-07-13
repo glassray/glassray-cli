@@ -36,13 +36,17 @@ export const ensurePaired = async (
       if (stored && stored.apiKey === key) {
         return { ...stored, paired: false };
       }
-      // A raw key from env/flag with no stored metadata: confirm it works.
+      // A raw key from env/flag with no matching stored metadata: confirm it works.
+      // Only reuse the stored orgName/userEmail when it belongs to the SAME org the
+      // key validated as — otherwise a stored credential for a different org would
+      // mislabel the session ("Signed in to <wrong org>").
       const status = await getStatus(ctx.endpoint, key);
+      const sameOrg = stored?.organizationId === status.organizationId;
       const cred = {
         organizationId: status.organizationId,
-        orgName: getStoredCredential(ctx.endpoint)?.orgName ?? status.organizationId,
+        orgName: sameOrg && stored ? stored.orgName : status.organizationId,
         apiKey: key,
-        userEmail: getStoredCredential(ctx.endpoint)?.userEmail ?? null,
+        userEmail: sameOrg && stored ? stored.userEmail : null,
         updatedAt: new Date().toISOString(),
       };
       return { ...cred, paired: false };

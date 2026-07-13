@@ -7,6 +7,7 @@
  * Every step is also a standalone command — this just sequences them, sharing
  * the lib layer directly so the flow controls its own spinners and report.
  */
+import path from "node:path";
 import readline from "node:readline/promises";
 import { boolFlag, parseCommand, resolveTimeoutSec, strFlag, type Context } from "../lib/context.js";
 import { detect, summarizeDetect } from "../lib/detect.js";
@@ -127,7 +128,7 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     success("Your account is already set up to receive traces");
   } else {
     const spin = spinner("Setting up where your traces will land…");
-    const res = await connectOtlp(ctx.endpoint, cred.apiKey, { displayName: report.cwd.split("/").pop() ?? "agent" });
+    const res = await connectOtlp(ctx.endpoint, cred.apiKey, { displayName: path.basename(report.cwd) || "agent" });
     otlpEndpoint = res.endpoint;
     if (res.ingestKey) {
       const written = upsertEnvLocal(process.cwd(), INGEST_KEY_ENV_VAR, res.ingestKey);

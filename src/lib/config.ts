@@ -9,7 +9,7 @@
  * repo's `.env.local`) so a shell that exports the ingest key can't be mistaken
  * for the org key here. See docs/onboarding-wizard.md §3.
  */
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -64,7 +64,12 @@ const writeStore = (store: CredentialStore): void => {
   const dir = configDir();
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = credentialsPath();
-  writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+  // Write-then-rename so a crash/full-disk mid-write can't truncate the live file:
+  // `readStore` maps a corrupt file to an empty store, and the next write would then
+  // clobber every other endpoint's key. rename is atomic within the same directory.
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, file);
   // mkdir's `mode` is ignored when the dir already exists; enforce it explicitly.
   try {
     chmodSync(dir, 0o700);

@@ -38,7 +38,13 @@ export const loopbackApi = async (
 ): Promise<Record<string, unknown>> => {
   let res: Response;
   try {
-    res = await fetch(`http://127.0.0.1:${port}${pathname}`, init);
+    // Bound every request so a Coach that accepts the connection but never responds
+    // can't hang the command; waitForRun's wall-clock deadline is only checked
+    // between polls, so without this a single wedged request defeats it.
+    res = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+      ...init,
+      signal: init?.signal ?? AbortSignal.timeout(30_000),
+    });
   } catch {
     return unreachable(port);
   }

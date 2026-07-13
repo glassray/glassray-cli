@@ -94,7 +94,7 @@ export const cmdDoctor = async (ctx: Context, args: string[]): Promise<void> => 
   if (!updateCheckOptedOut()) {
     const latest = await fetchLatestVersion();
     if (latest && compareVersions(latest, VERSION) > 0) {
-      checks.push({ name: "version", ok: true, detail: `${latest} available (you have ${VERSION}) — npm i -g glassray` });
+      checks.push({ name: "version", ok: true, detail: `${latest} available (you have ${VERSION}) — npm i -g @glassray/cli` });
     } else {
       checks.push({ name: "version", ok: true, detail: `${VERSION}${latest ? " (latest)" : ""}` });
     }
