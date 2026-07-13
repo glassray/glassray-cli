@@ -7,8 +7,9 @@
  *   `claude` TUI in the SAME terminal, seeded with the prompt, inheriting stdio.
  *   The user watches it work and approves its edits through Claude Code's own
  *   permission prompts; control returns here when they exit. No forced
- *   auto-accept — normal interactive approval applies — but `git commit`/`push`
- *   are still HARD-denied (a deny rule can't be clicked past).
+ *   auto-accept — normal interactive approval applies — but `@glassray` installs
+ *   are pre-approved (same scoped allow-list as headless) and `git commit`/`push`
+ *   are HARD-denied (a deny rule can't be clicked past).
  * - **headless** (`claude -p`, for non-TTY / CI / `--json`): pipe the prompt over
  *   stdin. Because `-p` cannot approve any tool on its own (it would run
  *   read-only), we grant a SCOPED permission set: auto-accept file edits, allow
@@ -47,10 +48,11 @@ const GIT_WRITE_DENY = [
 ].join(",");
 
 /**
- * Scoped install allow-list for headless `-p` (no human to approve): permit ONLY
- * installing the `@glassray` npm scope, never arbitrary packages. Two forms per
- * manager — `<pm> <verb> @glassray/*` (the exact command the prompt runs, plus
- * any version/flags after it) and `<pm> <verb> * @glassray/*` (a flag placed
+ * Scoped install allow-list, applied in BOTH modes: pre-approve ONLY installs of
+ * the `@glassray` npm scope, never arbitrary packages (headless auto-runs them;
+ * interactive skips the approval prompt for them). Two forms per manager —
+ * `<pm> <verb> @glassray/*` (the exact command the prompt runs, plus any
+ * version/flags after it) and `<pm> <verb> * @glassray/*` (a flag placed
  * BEFORE the package). Both require `@glassray/`, so nothing else installs.
  */
 const GLASSRAY_INSTALL_ALLOW = [
@@ -82,10 +84,18 @@ const HEADLESS_ARGS = [
 ];
 
 /**
- * Interactive flags: the user approves edits/installs through Claude Code's
- * normal prompts, but git writes stay hard-denied regardless of what they click.
+ * Interactive flags: the same scoped permission shape as headless — `@glassray`
+ * installs are pre-approved (no prompt for the one install the task needs) and
+ * git writes stay hard-denied regardless of what the user clicks. Everything
+ * else (edits, other commands) still goes through Claude Code's normal
+ * interactive approval prompts.
  */
-const INTERACTIVE_ARGS = ["--disallowedTools", GIT_WRITE_DENY];
+const INTERACTIVE_ARGS = [
+  "--allowedTools",
+  GLASSRAY_INSTALL_ALLOW,
+  "--disallowedTools",
+  GIT_WRITE_DENY,
+];
 
 /**
  * Run the customer's `claude` on the instrument prompt in `cwd`.

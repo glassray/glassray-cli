@@ -53,7 +53,8 @@ const showPrompt = (prompt: string, json: boolean): void => {
  * Hand the prompt to the local `claude` binary. `interactive` (a human at a TTY)
  * launches Claude Code's full TUI in place — the user watches and approves its
  * edits, then control returns here; headless (CI / non-TTY) runs `claude -p`
- * behind a spinner. Returns nothing; throws only on a headless non-zero exit.
+ * behind a spinner. Returns nothing; throws on a non-zero exit in either mode
+ * so the process exits with a failure code.
  */
 const runWithClaude = async (
   prompt: string,
@@ -65,9 +66,14 @@ const runWithClaude = async (
     // A full-screen TUI can't share the terminal with a spinner — hand over cleanly.
     info("Handing this to Claude Code — approve its edits, then control returns here.");
     const code = await runClaude(prompt, cwd, true);
-    if (code === 0) success("Claude Code finished — review the changes before you commit");
-    else warn(`Claude Code exited (code ${code}). Re-run \`glassray instrument\`, or \`--prompt-only\` to do it yourself.`);
+    // Emit the JSON payload before failing so callers still see the exit code.
     if (json) printData({ mode: "claude", exitCode: code, interactive: true });
+    if (code !== 0) {
+      throw new CliError(
+        `Claude Code exited (code ${code}) — re-run \`glassray instrument\`, or \`--prompt-only\` to do it yourself`,
+      );
+    }
+    success("Claude Code finished — review the changes before you commit");
     return;
   }
   const spin = spinner("Adding tracing to your code with Claude Code…");
@@ -105,7 +111,9 @@ export const performInstrument = async (opts: {
 
   // On a TTY a human can drive Claude Code's interactive TUI; in CI/headless we
   // fall back to `claude -p` (which needs the scoped permission flags to apply edits).
-  const interactive = !!process.stdout.isTTY;
+  // The TUI inherits stdin, so BOTH streams must be terminals — stdout alone
+  // (e.g. stdin piped/closed) would leave the TUI waiting on input it can't get.
+  const interactive = !!process.stdout.isTTY && !!process.stdin.isTTY;
 
   if (opts.forceRun) {
     await runWithClaude(opts.prompt, opts.cwd, opts.json, interactive);
