@@ -286,14 +286,22 @@ const cmdFlows = async (ctx: Context, args: string[]): Promise<void> => {
       if (codeRoot !== undefined) {
         body.codeRoot = path.resolve(codeRoot);
       } else {
-        const file = strFlag(values, "file") ?? "glassray.yaml";
-        const text = await readFile(file, "utf8").catch(() => null);
+        // An explicitly named --file must exist and parse; the implicit default
+        // is best-effort (a repo without glassray.yaml is fine).
+        const explicitFile = strFlag(values, "file");
+        const file = explicitFile ?? "glassray.yaml";
+        const text = await readFile(file, "utf8").catch((err: unknown) => {
+          if (explicitFile === undefined) return null;
+          const message = err instanceof Error ? err.message : String(err);
+          throw new CliError(`could not read --file ${file}: ${message}`);
+        });
         if (text !== null) {
           try {
             const parsed = await loopbackPost(ctx.port, "/api/artifact/parse", { yaml: text });
             const artifact = parsed.artifact as { codeRoot?: string } | undefined;
             if (artifact?.codeRoot) body.codeRoot = path.resolve(path.dirname(file), artifact.codeRoot);
-          } catch {
+          } catch (err) {
+            if (explicitFile !== undefined) throw err;
             // Fall through with no codeRoot — the server resolves from its own
             // cwd, or returns a helpful 400 telling the user to set codeRoot.
           }
