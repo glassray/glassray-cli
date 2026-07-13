@@ -66,14 +66,16 @@ const runWithClaude = async (
     // A full-screen TUI can't share the terminal with a spinner — hand over cleanly.
     info("Handing this to Claude Code — approve its edits, then control returns here.");
     const code = await runClaude(prompt, cwd, true);
-    // Emit the JSON payload before failing so callers still see the exit code.
-    if (json) printData({ mode: "claude", exitCode: code, interactive: true });
     if (code !== 0) {
+      // No printData here — a failure must not emit a partial JSON object, or a
+      // caller like `setup --json` loses ownership of stdout. stdout stays clean
+      // (same as the headless failure path); the exit code rides the error.
       throw new CliError(
         `Claude Code exited (code ${code}) — re-run \`glassray instrument\`, or \`--prompt-only\` to do it yourself`,
       );
     }
     success("Claude Code finished — review the changes before you commit");
+    if (json) printData({ mode: "claude", exitCode: code, interactive: true });
     return;
   }
   const spin = spinner("Adding tracing to your code with Claude Code…");
