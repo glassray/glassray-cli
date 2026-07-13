@@ -8,9 +8,10 @@
 import { getStoredCredential, resolveApiKey, setStoredCredential, type StoredCredential } from "../lib/config.js";
 import { boolFlag, parseCommand, strFlag, type Context } from "../lib/context.js";
 import { runDeviceAuth } from "../lib/device-auth.js";
-import { CliError } from "../lib/errors.js";
+import { ApiError, CliError } from "../lib/errors.js";
 import { exchange, getConfig, getStatus } from "../lib/http.js";
-import { bold, bullet, card, dim, link, PALETTE, paint, printData, success } from "../lib/ui.js";
+import type { SetupExchangeResponse } from "../lib/types.js";
+import { bold, bullet, card, dim, info, link, PALETTE, paint, printData, promptText, success } from "../lib/ui.js";
 
 /** How the CLI became (or already was) paired. */
 export interface PairResult extends StoredCredential {
@@ -62,10 +63,7 @@ export const ensurePaired = async (
   }
   const config = await getConfig(ctx.endpoint);
   const grant = await runDeviceAuth(config, { open: opts.open });
-  const result = await exchange(ctx.endpoint, grant.accessToken, {
-    ...(opts.orgName ? { orgName: opts.orgName } : {}),
-    ...(opts.org ? { organizationId: opts.org } : {}),
-  });
+  const result = await exchangeWithOrgPrompt(ctx, grant.accessToken, opts);
   setStoredCredential(ctx.endpoint, {
     organizationId: result.organizationId,
     orgName: result.orgName,
@@ -80,6 +78,58 @@ export const ensurePaired = async (
     updatedAt: new Date().toISOString(),
     paired: true,
   };
+};
+
+/** True when the exchange failed because a fresh sign-up needs an org name. Falls
+ * back to matching the message so older deployments (no `code` field) still work. */
+const needsOrgName = (err: unknown): err is ApiError =>
+  err instanceof ApiError &&
+  (err.code === "org-name-required" || (err.status === 400 && /no organization yet/i.test(err.message)));
+
+/** Retry budget for the interactive org-name prompt (mistypes, empty answers). */
+const ORG_NAME_ATTEMPTS = 3;
+
+/**
+ * Run the token exchange; on a fresh sign-up (no org, no `--org-name` given)
+ * ask for the organization's name right here in the terminal and retry, instead
+ * of dying with "pass an org name". Non-TTY (and `--json`) sessions never
+ * prompt — they get the actionable `--org-name` error instead.
+ */
+const exchangeWithOrgPrompt = async (
+  ctx: Context,
+  accessToken: string,
+  opts: { orgName?: string; org?: string },
+): Promise<SetupExchangeResponse> => {
+  try {
+    return await exchange(ctx.endpoint, accessToken, {
+      ...(opts.orgName ? { orgName: opts.orgName } : {}),
+      ...(opts.org ? { organizationId: opts.org } : {}),
+    });
+  } catch (err) {
+    if (!needsOrgName(err)) throw err;
+    if (process.stdin.isTTY !== true || ctx.json) {
+      throw new CliError(
+        'you don\'t have an organization yet — re-run with --org-name "Your Company" to create one',
+      );
+    }
+    info("You don't have an organization yet — let's create one.");
+    for (let attempt = 1; attempt <= ORG_NAME_ATTEMPTS; attempt += 1) {
+      const orgName = await promptText("What should we call it? (usually your company name)");
+      if (orgName === "") continue;
+      try {
+        return await exchange(ctx.endpoint, accessToken, { orgName });
+      } catch (retryErr) {
+        // A rejected name (e.g. validation) is retryable; anything else is not.
+        if (!(retryErr instanceof ApiError) || retryErr.status !== 400 || attempt === ORG_NAME_ATTEMPTS) {
+          throw retryErr;
+        }
+        info(retryErr.message);
+      }
+    }
+    throw new CliError(
+      'no organization name given — re-run with --org-name "Your Company" to create one',
+    );
+  }
 };
 
 /** The `login` command. */

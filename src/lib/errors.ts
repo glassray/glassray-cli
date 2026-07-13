@@ -29,3 +29,22 @@ export class CliError extends Error {
 export const fail = (message: string, exitCode: number = EXIT.FAILURE): never => {
   throw new CliError(message, exitCode);
 };
+
+/**
+ * A non-2xx response from the Glassray API. Carries the HTTP status and the
+ * server's optional machine-readable `code` (e.g. `org-name-required`) so
+ * callers can branch on a failure and recover — never by matching the human
+ * message.
+ */
+export class ApiError extends CliError {
+  /** HTTP status of the failed response. */
+  readonly status: number;
+  /** The server's `{ code }` discriminator, when it sent one. */
+  readonly code: string | null;
+  constructor(message: string, status: number, code: string | null = null) {
+    super(message, EXIT.FAILURE);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}

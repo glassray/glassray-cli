@@ -6,7 +6,7 @@
  * The ONLY runtime coupling to Glassray is these HTTP calls — no shared code is
  * imported (the contract types are defined locally in `./types.js`).
  */
-import { CliError, EXIT } from "./errors.js";
+import { ApiError, CliError, EXIT } from "./errors.js";
 import type {
   ConnectOtlpRequest,
   ConnectOtlpResponse,
@@ -31,6 +31,15 @@ const errorMessage = (body: unknown, fallback: string): string => {
     if (typeof rec.message === "string" && rec.message !== "") return rec.message;
   }
   return fallback;
+};
+
+/** Pull the machine-readable `code` discriminator out of a parsed error body. */
+const errorCode = (body: unknown): string | null => {
+  if (body && typeof body === "object") {
+    const rec = body as Record<string, unknown>;
+    if (typeof rec.code === "string" && rec.code !== "") return rec.code;
+  }
+  return null;
 };
 
 /** Parse a response body as JSON, tolerating an empty body. Non-JSON bodies (an
@@ -62,7 +71,7 @@ const requestJson = async <T>(
   const body = await parseBody(res);
   if (!res.ok) {
     const fallback = `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""} from ${new URL(url).pathname}`;
-    throw new CliError(errorMessage(body, fallback), EXIT.FAILURE);
+    throw new ApiError(errorMessage(body, fallback), res.status, errorCode(body));
   }
   return body as T;
 };

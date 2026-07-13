@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 /** The CLI's own version, read from package.json (this bundle lives in dist/). */
@@ -271,6 +272,21 @@ export const errorLine = (message: string): void => {
 /** A dim, indented secondary line on stderr (suppressed in JSON mode). */
 export const detail = (message: string): void => {
   if (!jsonMode) process.stderr.write(`    ${dim(message, MODE_ERR)}\n`);
+};
+
+/**
+ * Ask one free-text question on stderr and return the trimmed answer (empty
+ * string when the user just hits enter). Callers must only reach this on an
+ * interactive TTY — the CLI's "non-TTY never prompts" rule is enforced at the
+ * call site, where the non-interactive fallback error lives.
+ */
+export const promptText = async (question: string): Promise<string> => {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    return (await rl.question(`  ${question} `)).trim();
+  } finally {
+    rl.close();
+  }
 };
 
 // ── spinner ──────────────────────────────────────────────────────────────────
