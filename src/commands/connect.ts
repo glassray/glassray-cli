@@ -58,7 +58,10 @@ export const cmdConnect = async (ctx: Context, args: string[]): Promise<void> =>
   const opened = open && openBrowser(url);
 
   if (ctx.json) {
-    printData({ target, url, opened });
+    // `connect` only opens the dashboard — it does NOT provision a source or mint
+    // an ingest key. Say so explicitly so a headless caller can't read exit 0 as
+    // "source created" and then wait on `verify` for traces that can't arrive.
+    printData({ action: "open-dashboard", target, url, opened, provisioned: false });
     return;
   }
 

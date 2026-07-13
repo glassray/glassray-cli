@@ -10,7 +10,7 @@ import path from "node:path";
 import { boolFlag, parseCommand, resolveTimeoutSec, strFlag, type Context } from "../lib/context.js";
 import { openBrowser } from "../lib/browser.js";
 import { detect } from "../lib/detect.js";
-import { CliError } from "../lib/errors.js";
+import { CliError, EXIT } from "../lib/errors.js";
 import { detectEnvFile, INGEST_KEY_ENV_VAR, upsertEnvFile } from "../lib/env-file.js";
 import { connectOtlp, getConfig, getStatus } from "../lib/http.js";
 import { confirm } from "../lib/prompt.js";
@@ -116,7 +116,10 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     // (CI / no browser) cannot drive it. Point such callers at the subcommands.
     if (!interactive) {
       throw new CliError(
-        "`glassray setup` needs a browser to finish onboarding — complete it in the dashboard. For CI, connect a source with the `connect_otlp_source` / `connect_pull_source` MCP tools, then run `glassray instrument --prompt-only` and `glassray verify --wait` (both take `--api-key`).",
+        "`glassray setup` needs a browser to finish first-time onboarding — there's no fully headless first run.",
+        EXIT.FAILURE,
+        "onboarding-needs-browser",
+        `Finish onboarding once where you can open a browser — run \`glassray setup\` there, or open ${appUrl} and complete it. After that, CI can wire traces headlessly with \`glassray instrument --prompt-only\` then \`glassray verify --wait\` (both take \`--api-key\`). Agents on the MCP server can instead create a source with the connect_otlp_source / connect_pull_source tools (not CLI commands).`,
       );
     }
     const wizardUrl = `${appUrl}/api/setup/enter?org=${encodeURIComponent(cred.organizationId)}&src=cli`;
