@@ -73,9 +73,9 @@ the full table — the key ones for local dev:
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `GLASSRAY_ENDPOINT` | `https://app.glassray.ai` | Glassray deployment to target (or `--endpoint`). |
+| `GLASSRAY_APP_URL` | `https://app.glassray.ai` | Glassray deployment to target (or `--endpoint`). `GLASSRAY_ENDPOINT` still works as a deprecated fallback (now reserved for the SDK's ingest endpoint). |
 | `GLASSRAY_TOKEN` | — | Org key for CI/headless (or `--api-key`). Distinct from the SDK's `GLASSRAY_API_KEY`. |
-| `GLASSRAY_WORKOS_API` | `https://api.workos.com` | WorkOS device-auth base (override while the endpoint host is being confirmed). |
+| `GLASSRAY_AUTH_API` | `https://auth-api.glassray.ai` | Auth-service device-grant base (WorkOS Authentication API domain, a CNAME fronting `api.workos.com`; override to point at another host). |
 | `GLASSRAY_PORT` | `5899` | Local Coach port (or `--port`). |
 | `GLASSRAY_NO_TELEMETRY` | — | Opt out of run telemetry (or `--no-telemetry`). |
 | `GLASSRAY_NO_UPDATE_CHECK` | — | Disable the npm update check (also honors `NO_UPDATE_NOTIFIER`, `CI`). |

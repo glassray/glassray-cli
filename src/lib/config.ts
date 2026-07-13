@@ -12,13 +12,43 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isJsonMode } from "./ui.js";
 
-/** Default Glassray deployment when neither `--endpoint` nor `GLASSRAY_ENDPOINT` is set. */
+/** Default Glassray deployment when neither `--endpoint` nor `GLASSRAY_APP_URL` is set. */
 export const DEFAULT_ENDPOINT = "https://app.glassray.ai";
 
-/** Resolve the endpoint: `--endpoint` flag > `GLASSRAY_ENDPOINT` env > default. Trailing slash trimmed. */
+/** Guards the one-time `GLASSRAY_ENDPOINT` deprecation nudge so it fires at most once per process. */
+let legacyEndpointWarned = false;
+
+/**
+ * Resolve the CLI's Glassray base URL. Precedence: `--endpoint` flag >
+ * `GLASSRAY_APP_URL` env > `GLASSRAY_ENDPOINT` env (DEPRECATED) > default;
+ * trailing slash trimmed. `GLASSRAY_ENDPOINT` is being reserved for the SDK's
+ * trace-ingest endpoint — it stays a fallback so existing 0.1.1 users keep
+ * working, with a one-time stderr nudge to switch to `GLASSRAY_APP_URL`. The
+ * nudge is suppressed under `--json` so it can't pollute a JSON command's stderr
+ * (which some consumers treat as a failure signal).
+ */
 export const resolveEndpoint = (flag?: string): string => {
-  const raw = flag ?? process.env.GLASSRAY_ENDPOINT ?? DEFAULT_ENDPOINT;
+  const fromAppUrl = process.env.GLASSRAY_APP_URL;
+  const fromLegacy = process.env.GLASSRAY_ENDPOINT;
+  let raw: string;
+  if (flag !== undefined && flag !== "") {
+    raw = flag;
+  } else if (fromAppUrl !== undefined && fromAppUrl !== "") {
+    raw = fromAppUrl;
+  } else if (fromLegacy !== undefined && fromLegacy !== "") {
+    if (!legacyEndpointWarned && !isJsonMode()) {
+      legacyEndpointWarned = true;
+      process.stderr.write(
+        "  warning: GLASSRAY_ENDPOINT is deprecated for the CLI — set GLASSRAY_APP_URL instead " +
+          "(GLASSRAY_ENDPOINT is being reserved for the SDK's trace-ingest endpoint).\n",
+      );
+    }
+    raw = fromLegacy;
+  } else {
+    raw = DEFAULT_ENDPOINT;
+  }
   return raw.replace(/\/+$/, "");
 };
 

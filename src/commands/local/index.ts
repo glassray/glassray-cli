@@ -3,7 +3,7 @@
  * (pull / push / run / compare / check / link) delegated to `@glassray/coach`
  * (they need repo-side files — glassray.yaml, fixtures, run recipes), plus the
  * data verbs (traces / stats / usage / flows / evals / deviations / discovery /
- * fix / runs). The data verbs are thin loopback fetchers ported from
+ * experiments / fix / runs). The data verbs are thin loopback fetchers ported from
  * `coach/bin/commands.mjs` — command names and semantics are identical, and
  * stdout is the API JSON verbatim (never decorated).
  */
@@ -34,6 +34,7 @@ export const LOCAL_DATA_COMMANDS = new Set([
   "evals",
   "deviations",
   "discovery",
+  "experiments",
   "fix",
   "runs",
 ]);
@@ -436,7 +437,7 @@ const cmdEvals = async (ctx: Context, args: string[]): Promise<void> => {
   }
 };
 
-/** `deviations list|get|resolve`. */
+/** `deviations list|get|resolve|discover`. */
 const cmdDeviations = async (ctx: Context, args: string[]): Promise<void> => {
   const verb = args[0];
   const rest = args.slice(1);
@@ -453,20 +454,35 @@ const cmdDeviations = async (ctx: Context, args: string[]): Promise<void> => {
       const action = boolFlag(values, "reopen") ? "reopen" : "resolve";
       return printJson(await loopbackPost(ctx.port, `/api/deviations/${encodeURIComponent(id)}/${action}`));
     }
+    case "discover":
+      // The canonical spelling of the discovery-run action; `discovery run` aliases it.
+      return runDiscovery(ctx, rest);
     default:
-      throw new CliError(verb === undefined ? "missing deviations verb" : `unknown deviations verb "${verb}"`);
+      throw new CliError(
+        verb === undefined ? "missing deviations verb (list|get|resolve|discover)" : `unknown deviations verb "${verb}"`,
+      );
   }
 };
 
-/** `discovery run`. */
-const cmdDiscovery = async (ctx: Context, args: string[]): Promise<void> => {
-  const verb = args[0];
-  if (verb !== "run") throw new CliError(verb === undefined ? "missing verb (run)" : `unknown discovery verb "${verb}"`);
-  const { values } = parseCommand(args.slice(1), { sample: { type: "string" }, flow: { type: "string" }, ...WAIT_FLAGS });
+/**
+ * The discovery-run action: cluster recent traces into recurring failures
+ * (deviations). Shared by the canonical `deviations discover` and its
+ * `discovery run` alias — identical flags (--sample, --flow, wait flags),
+ * the same `/api/discovery/run` enqueue, no behavior difference.
+ */
+const runDiscovery = async (ctx: Context, args: string[]): Promise<void> => {
+  const { values } = parseCommand(args, { sample: { type: "string" }, flow: { type: "string" }, ...WAIT_FLAGS });
   const body: Record<string, unknown> = {};
   if (strFlag(values, "sample") !== undefined) body.sampleSize = Number(strFlag(values, "sample"));
   if (strFlag(values, "flow") !== undefined) body.flowId = strFlag(values, "flow");
   return enqueueAndWait(ctx.port, "/api/discovery/run", body, waitOpts(values));
+};
+
+/** `discovery run` — alias of the canonical `deviations discover`. */
+const cmdDiscovery = async (ctx: Context, args: string[]): Promise<void> => {
+  const verb = args[0];
+  if (verb !== "run") throw new CliError(verb === undefined ? "missing verb (run)" : `unknown discovery verb "${verb}"`);
+  return runDiscovery(ctx, args.slice(1));
 };
 
 /** `fix <deviationId>`. */
@@ -500,6 +516,27 @@ const cmdRuns = async (ctx: Context, args: string[]): Promise<void> => {
   }
 };
 
+/** `experiments list|get <id>` — read-only mirror of the loopback `/api/experiments` endpoints. */
+const cmdExperiments = async (ctx: Context, args: string[]): Promise<void> => {
+  const verb = args[0];
+  const rest = args.slice(1);
+  switch (verb) {
+    case "list": {
+      // The endpoint takes an optional `flowId` scope; surface it as `--flow`.
+      const { values } = parseCommand(rest, { flow: { type: "string" } });
+      return printJson(await loopbackApi(ctx.port, `/api/experiments${toQuery({ flowId: strFlag(values, "flow") })}`));
+    }
+    case "get": {
+      const { positionals } = parseCommand(rest);
+      return printJson(await loopbackApi(ctx.port, `/api/experiments/${encodeURIComponent(requireId(positionals))}`));
+    }
+    default:
+      throw new CliError(
+        verb === undefined ? "missing experiments verb (list|get)" : `unknown experiments verb "${verb}"`,
+      );
+  }
+};
+
 /** Dispatch a local data verb by command word. */
 export const runLocalData = async (command: string, ctx: Context, args: string[]): Promise<void> => {
   switch (command) {
@@ -517,6 +554,8 @@ export const runLocalData = async (command: string, ctx: Context, args: string[]
       return cmdDeviations(ctx, args);
     case "discovery":
       return cmdDiscovery(ctx, args);
+    case "experiments":
+      return cmdExperiments(ctx, args);
     case "fix":
       return cmdFix(ctx, args);
     case "runs":
