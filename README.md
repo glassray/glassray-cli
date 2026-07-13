@@ -48,7 +48,7 @@ Run `glassray --help` for the branded reference, or `glassray <command> --help` 
 
 ```
 glassray setup                 Orchestrator: pair, detect, connect, instrument, verify
-glassray login / logout        Pair (WorkOS device grant), or clear the stored credential
+glassray login / logout        Pair this machine (browser device grant), or clear the stored credential
 glassray whoami                Which org and user the active key resolves to
 glassray detect                Inspect the repo: framework, tracing, provider keys
 glassray connect <target>      otlp · langsmith · langfuse · posthog · github · slack
@@ -67,8 +67,9 @@ glassray start                 Run the local Coach server (installs @glassray/co
 glassray traces                list · get <id> · tail
 glassray flows                 list · get · create · update · delete · audit · discover
 glassray evals                 list · get · create · update · delete · run
-glassray deviations            list · get <id> · resolve <id>
-glassray discovery run         Find recurring failures across recent traces
+glassray deviations            list · get <id> · resolve <id> · discover
+glassray deviations discover   Find recurring failures across recent traces (alias: discovery run)
+glassray experiments           list · get <id>
 glassray fix <deviationId>     Generate a fix doc for your coding agent
 glassray runs · stats · usage  Background runs · store rollups · LLM spend
 ```
@@ -91,15 +92,15 @@ glassray upgrade               How to self-update
 
 | Flag               | Env                     | Meaning                                                                      |
 | ------------------ | ----------------------- | ---------------------------------------------------------------------------- |
-| `--endpoint <url>` | `GLASSRAY_ENDPOINT`     | Target deployment (default `https://app.glassray.ai`).                       |
+| `--endpoint <url>` | `GLASSRAY_APP_URL`      | Target deployment (default `https://app.glassray.ai`). `GLASSRAY_ENDPOINT` is a deprecated fallback (reserved for the SDK's ingest endpoint). |
 | `--api-key <key>`  | `GLASSRAY_TOKEN`        | Org key for CI/headless. Precedence: flag, then env, then stored credential. |
 | `--json`           | (none)                  | Machine output on stdout (status chrome stays on stderr).                    |
 | `--port <n>`       | `GLASSRAY_PORT`         | Local Coach port (default `5899`).                                           |
 | `--no-telemetry`   | `GLASSRAY_NO_TELEMETRY` | Opt out of best-effort run telemetry.                                        |
 | `--debug`          | (none)                  | Verbose output and stack traces.                                             |
 
-Other environment variables: `GLASSRAY_WORKOS_API` overrides the WorkOS device-auth base
-(defaults to `https://api.workos.com`); `XDG_CONFIG_HOME` relocates the config directory;
+Other environment variables: `GLASSRAY_AUTH_API` overrides the authentication-service base
+(defaults to `https://auth-api.glassray.ai`); `XDG_CONFIG_HOME` relocates the config directory;
 `GLASSRAY_NO_UPDATE_CHECK` (also honors `NO_UPDATE_NOTIFIER` and `CI`) disables the npm update
 check.
 

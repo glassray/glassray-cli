@@ -127,8 +127,9 @@ export const connectPull = (
  * `POST {workosApi}/user_management/authorize/device` — start the device grant.
  * RFC 8628 §3.1 uses `application/x-www-form-urlencoded`.
  *
- * NOTE: the exact device-endpoint base host (api.workos.com vs the AuthKit
- * domain) is UNCONFIRMED; the base is env-overridable via `GLASSRAY_WORKOS_API`.
+ * `{workosApi}` is the WorkOS auth-API base (`GLASSRAY_AUTH_API`), defaulting
+ * to the branded Authentication API domain `https://auth-api.glassray.ai` — a
+ * CNAME fronting `api.workos.com`, so either host serves this endpoint.
  */
 export const authorizeDevice = async (
   workosApi: string,
@@ -168,13 +169,13 @@ export const pollDeviceToken = async (
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new CliError(`could not reach WorkOS at ${workosApi} — ${reason}`, EXIT.UNREACHABLE);
+    throw new CliError(`could not reach the auth service at ${workosApi} — ${reason}`, EXIT.UNREACHABLE);
   }
   const body = (await parseBody(res)) as DeviceTokenResponse;
   // A 5xx with no structured error is a genuine outage, not a poll signal.
   if (!res.ok && typeof body.error !== "string") {
     throw new CliError(
-      errorMessage(body, `${res.status} ${res.statusText} from WorkOS authenticate`),
+      errorMessage(body, `${res.status} ${res.statusText} from the auth service`),
       EXIT.FAILURE,
     );
   }

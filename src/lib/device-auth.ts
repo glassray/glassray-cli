@@ -11,12 +11,17 @@ import { authorizeDevice, pollDeviceToken } from "./http.js";
 import type { SetupConfigResponse } from "./types.js";
 import { bold, detail, info, link, MODE_ERR, PALETTE, paintErr, spinner } from "./ui.js";
 
-/** Default WorkOS API base. Env-overridable because the device-endpoint host is UNCONFIRMED. */
-const DEFAULT_WORKOS_API = "https://api.workos.com";
+/**
+ * Default Glassray auth-service base — the branded Authentication API domain, so
+ * device requests, the `iss` on issued tokens, and the host end users glimpse
+ * during sign-in all live on `glassray.ai`. Env-overridable via
+ * `GLASSRAY_AUTH_API` (e.g. to point at a staging auth host).
+ */
+const DEFAULT_AUTH_API = "https://auth-api.glassray.ai";
 
-/** Resolve the WorkOS API base: `GLASSRAY_WORKOS_API` env > default. */
-export const resolveWorkosApi = (): string =>
-  (process.env.GLASSRAY_WORKOS_API ?? DEFAULT_WORKOS_API).replace(/\/+$/, "");
+/** Resolve the auth-service base: `GLASSRAY_AUTH_API` env > default. */
+export const resolveAuthApi = (): string =>
+  (process.env.GLASSRAY_AUTH_API ?? DEFAULT_AUTH_API).replace(/\/+$/, "");
 
 /** The result of a completed device grant. */
 export interface DeviceAuthResult {
@@ -43,8 +48,8 @@ export const runDeviceAuth = async (
       "this Glassray deployment has no CLI-auth client configured — pass --api-key, or set GLASSRAY_TOKEN",
     );
   }
-  const workosApi = resolveWorkosApi();
-  const auth = await authorizeDevice(workosApi, config.clientId);
+  const authApi = resolveAuthApi();
+  const auth = await authorizeDevice(authApi, config.clientId);
 
   info(`Pairing: your code is ${bold(auth.user_code, MODE_ERR)}`);
   const target = auth.verification_uri_complete || auth.verification_uri;
@@ -63,7 +68,7 @@ export const runDeviceAuth = async (
       throw new CliError("device code expired before approval");
     }
     await sleep(interval);
-    const token = await pollDeviceToken(workosApi, config.clientId, auth.device_code);
+    const token = await pollDeviceToken(authApi, config.clientId, auth.device_code);
 
     if (typeof token.access_token === "string") {
       spin.succeed(`approved${token.user?.email ? ` as ${token.user.email}` : ""}`);
@@ -89,7 +94,7 @@ export const runDeviceAuth = async (
       default:
         spin.fail(`pairing failed: ${token.error ?? "unknown error"}`);
         throw new CliError(
-          `WorkOS device authentication failed: ${token.error_description ?? token.error ?? "unknown"}`,
+          `device authentication failed: ${token.error_description ?? token.error ?? "unknown"}`,
         );
     }
     spin.update(`waiting for approval… ${paintErr(`(polling every ${interval}s)`, PALETTE.muted)}`);
