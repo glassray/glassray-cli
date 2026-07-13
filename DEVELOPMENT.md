@@ -8,18 +8,22 @@ native `fetch` only) and **no `@helix/*` / `workspace:` imports** — so it is l
 own public repo with no changes. Its only couplings are runtime boundaries: HTTPS to the
 Glassray API, and shelling out to `npx @glassray/coach` for `glassray start`.
 
-Today it lives in the Glassray monorepo as `packages/cli` and builds through pnpm/Turbo; once
-extracted it becomes a plain npm package (the commands below map 1:1 to `npm run …`).
+It lives as a git submodule at `packages/cli` inside the Glassray monorepo, but it is a
+**standalone npm package** with its own `package-lock.json` and CI — deliberately kept **out**
+of the monorepo's pnpm workspace (nothing in the monorepo depends on it), so develop it with
+plain `npm` from this directory.
 
 ## Commands
 
-From the monorepo root (or drop `pnpm --filter @glassray/cli` once extracted):
+From `packages/cli` (install once from the committed lockfile, then use the package scripts):
 
 ```sh
-pnpm --filter @glassray/cli dev        # tsx src/bin.ts — run straight from TypeScript
-pnpm --filter @glassray/cli build      # tsup → dist/bin.js (+ .map), shebang-marked executable
-pnpm --filter @glassray/cli typecheck  # tsc --noEmit
-pnpm --filter @glassray/cli lint       # eslint .
+npm ci                 # reproducible install from package-lock.json (or `npm install`)
+
+npm run dev            # tsx src/bin.ts — run straight from TypeScript
+npm run build          # tsup → dist/bin.js (+ .map), shebang-marked executable
+npm run typecheck      # tsc --noEmit
+npm run lint           # eslint .
 
 node dist/bin.js --help           # run the built binary locally
 node dist/bin.js setup --endpoint http://localhost:3000   # point at a local Glassray
