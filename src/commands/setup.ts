@@ -11,7 +11,7 @@ import { boolFlag, parseCommand, resolveTimeoutSec, strFlag, type Context } from
 import { openBrowser } from "../lib/browser.js";
 import { detect } from "../lib/detect.js";
 import { CliError } from "../lib/errors.js";
-import { detectEnvFile, upsertEnvFile } from "../lib/env-file.js";
+import { detectEnvFile, INGEST_KEY_ENV_VAR, upsertEnvFile } from "../lib/env-file.js";
 import { connectOtlp, getConfig, getStatus } from "../lib/http.js";
 import { confirm } from "../lib/prompt.js";
 import { buildInstrumentPrompt } from "../lib/instrument-prompt.js";
@@ -38,7 +38,6 @@ import {
   success,
   warn,
 } from "../lib/ui.js";
-import { INGEST_KEY_ENV_VAR } from "./connect.js";
 import { performInstrument } from "./instrument.js";
 import { ensurePaired } from "./login.js";
 import { tokenExportHint } from "./mcp.js";
@@ -53,9 +52,12 @@ const tracesLanded = (s: SetupStatusResponse): boolean =>
 /** A one-line live summary of the wizard's per-step progress, for the waiting spinner. */
 const liveStatusLine = (s: SetupStatusResponse): string => {
   const mark = (ok: boolean): string => (ok ? paint("✓", PALETTE.brandBright) : dim("·"));
-  const sources = s.sources.length > 0 ? `${s.sources.length}` : s.tracePath === "none" ? "skipped" : "·";
-  return `GitHub ${mark(s.github === "connected")}  Slack ${mark(s.slack === "connected")}  Sources ${sources}`;
+  return `GitHub ${mark(s.github === "connected")}   Slack ${mark(s.slack === "connected")}   Traces ${mark(s.sources.length > 0)}`;
 };
+
+/** Whether any browser step has landed yet — until then we don't show the per-step breakdown. */
+const onboardingStarted = (s: SetupStatusResponse): boolean =>
+  s.github === "connected" || s.slack === "connected" || s.sources.length > 0;
 
 /** Print the completed-onboarding status as a compact, data-rich card. */
 const printOnboardingStatus = (s: SetupStatusResponse): void => {
@@ -131,7 +133,12 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
       {
         timeoutSec: ONBOARDING_WAIT_SEC,
         intervalSec: 3,
-        onTick: (s) => spin.update(`In your browser…  ${liveStatusLine(s)}`),
+        onTick: (s) =>
+          spin.update(
+            onboardingStarted(s)
+              ? `In your browser…   ${liveStatusLine(s)}`
+              : "Waiting for you to finish setup in your browser…",
+          ),
       },
     );
     spin.stop();

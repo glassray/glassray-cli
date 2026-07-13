@@ -52,8 +52,8 @@ glassray setup                 Launcher: sign in → browser wizard (GitHub · t
 glassray login / logout        Pair this machine (browser device grant), or clear the stored credential
 glassray whoami                Which org and user the active key resolves to
 glassray detect                Inspect the repo: framework, tracing, provider keys
-glassray connect <target>      Trace sources (advanced/CI): otlp · langsmith · langfuse · posthog
-                               (GitHub / Slack are connected in the setup wizard)
+glassray connect <target>      Open the dashboard settings page for a source/integration in your
+                               browser: otlp · langsmith · langfuse · posthog · slack · github
 glassray instrument            Add the SDK + tags; shows the prompt (copied to clipboard) and
                                offers to run Claude Code (sandboxed: @glassray installs only,
                                never commits/pushes). Flags: --run, --prompt-only

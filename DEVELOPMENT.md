@@ -42,7 +42,10 @@ The bundled skill asset (`assets/skill/SKILL.md`) is resolved at runtime relativ
   `parseCommand`), is idempotent, and speaks `--json`. `setup.ts` is the **launcher** (v3): it
   signs in, opens the browser onboarding wizard, polls `/v1/setup/status` until
   `onboardingCompleted`, then wires the SDK locally (only when `tracePath` is `otlp`/`none`) and
-  verifies — it no longer sequences GitHub/Slack connect (those live in the web wizard).
+  verifies — the full guided flow (GitHub · traces · Slack) runs in the web wizard. `connect.ts`
+  is a thin browser launcher: `glassray connect <target>` resolves the app URL and opens the
+  matching dashboard settings page (`otlp`/`langsmith`/`langfuse`/`posthog` → sources, `slack` →
+  notifications, `github` → integrations); `--no-open` prints the URL instead of opening it.
   `local/index.ts` holds `start` + the Coach data verbs.
 - `src/lib/` — the shared machinery: `context.ts` (arg parsing + `Context`), `config.ts` (the
   `~/.config/glassray` credential store + endpoint resolution), `http.ts` (typed fetch wrappers

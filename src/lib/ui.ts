@@ -278,6 +278,11 @@ export const errorLine = (message: string): void => {
   process.stderr.write(`  ${cross()} ${message}\n`);
 };
 
+/** A remediation hint on stderr, shown under an error (e.g. "run `glassray logout`"). Always shown. */
+export const hint = (message: string): void => {
+  process.stderr.write(`    ${paintErr("→", PALETTE.brandBright)} ${dim(message, MODE_ERR)}\n`);
+};
+
 /** A dim, indented secondary line on stderr (suppressed in JSON mode). */
 export const detail = (message: string): void => {
   if (!jsonMode) process.stderr.write(`    ${dim(message, MODE_ERR)}\n`);

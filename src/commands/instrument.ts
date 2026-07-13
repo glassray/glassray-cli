@@ -14,8 +14,8 @@ import { CliError } from "../lib/errors.js";
 import { getConfig } from "../lib/http.js";
 import { buildInstrumentPrompt } from "../lib/instrument-prompt.js";
 import { confirm } from "../lib/prompt.js";
-import { INGEST_KEY_ENV_VAR } from "./connect.js";
-import { detail, dim, info, printData, spinner, success, warn } from "../lib/ui.js";
+import { INGEST_KEY_ENV_VAR } from "../lib/env-file.js";
+import { detail, dim, info, printData, success, warn } from "../lib/ui.js";
 
 /** Resolve the OTLP endpoint: `--otlp-endpoint` > `${appUrl}/api/public/otel/v1/traces`. */
 const resolveOtlpEndpoint = async (ctx: Context, flag: string | undefined): Promise<string> => {
@@ -42,42 +42,25 @@ const showPrompt = (prompt: string, json: boolean): void => {
 };
 
 /**
- * Hand the prompt to the local `claude` binary. `interactive` (a human at a TTY)
- * launches Claude Code's full TUI in place — the user watches and approves its
- * edits, then control returns here; headless (CI / non-TTY) runs `claude -p`
- * behind a spinner. Returns nothing; throws on a non-zero exit in either mode
- * so the process exits with a failure code.
+ * Hand the prompt to the local `claude` binary. Claude Code runs HEADLESSLY — it
+ * applies the change and exits, returning control here (no getting stuck inside
+ * an interactive Claude session). Its work streams to the terminal, so there's
+ * no spinner to fight the output. Throws on a non-zero exit so the process
+ * surfaces the failure.
  */
-const runWithClaude = async (
-  prompt: string,
-  cwd: string,
-  json: boolean,
-  interactive: boolean,
-): Promise<void> => {
-  if (interactive) {
-    // A full-screen TUI can't share the terminal with a spinner — hand over cleanly.
-    info("Handing this to Claude Code — approve its edits, then control returns here.");
-    const code = await runClaude(prompt, cwd, true);
-    if (code !== 0) {
-      // No printData here — a failure must not emit a partial JSON object, or a
-      // caller like `setup --json` loses ownership of stdout. stdout stays clean
-      // (same as the headless failure path); the exit code rides the error.
-      throw new CliError(
-        `Claude Code exited (code ${code}) — re-run \`glassray instrument\`, or \`--prompt-only\` to do it yourself`,
-      );
-    }
-    success("Claude Code finished — review the changes before you commit");
-    if (json) printData({ mode: "claude", exitCode: code, interactive: true });
-    return;
-  }
-  const spin = spinner("Adding tracing to your code with Claude Code…");
-  const code = await runClaude(prompt, cwd, false);
+const runWithClaude = async (prompt: string, cwd: string, json: boolean): Promise<void> => {
+  info("Wiring the SDK into your code with Claude Code…");
+  detail("installs @glassray only · never commits or pushes · returns here when done");
+  const code = await runClaude(prompt, cwd);
   if (code !== 0) {
-    spin.fail(`Claude Code stopped (exit ${code})`);
-    throw new CliError("re-run `glassray instrument` to try again, or `--prompt-only` to do it yourself");
+    // No printData on failure — a partial JSON object would let a caller like
+    // `setup --json` lose ownership of stdout. The exit code rides the error.
+    throw new CliError(
+      `Claude Code exited (code ${code}) — re-run \`glassray instrument\`, or \`--prompt-only\` to do it yourself`,
+    );
   }
-  spin.succeed("Your agent now sends traces — review the changes before you commit");
-  if (json) printData({ mode: "claude", exitCode: code, interactive: false });
+  success("Done — your agent now sends traces; review the changes before you commit");
+  if (json) printData({ mode: "claude", exitCode: code });
 };
 
 /**
@@ -103,22 +86,16 @@ export const performInstrument = async (opts: {
     return;
   }
 
-  // On a TTY a human can drive Claude Code's interactive TUI; in CI/headless we
-  // fall back to `claude -p` (which needs the scoped permission flags to apply edits).
-  // The TUI inherits stdin, so BOTH streams must be terminals — stdout alone
-  // (e.g. stdin piped/closed) would leave the TUI waiting on input it can't get.
-  const interactive = !!process.stdout.isTTY && !!process.stdin.isTTY;
-
   if (opts.forceRun) {
-    await runWithClaude(opts.prompt, opts.cwd, opts.json, interactive);
+    await runWithClaude(opts.prompt, opts.cwd, opts.json);
     return;
   }
 
-  // Interactive: default to handing over the prompt; offer to run Claude Code.
+  // On a TTY: default to handing over the prompt; offer to run Claude Code (headless).
   if (process.stdin.isTTY) {
     info("Time to add tracing to your code. I can run Claude Code for you, or give you the prompt to run yourself.");
     if (await confirm("Run Claude Code now?", false)) {
-      await runWithClaude(opts.prompt, opts.cwd, opts.json, true);
+      await runWithClaude(opts.prompt, opts.cwd, opts.json);
     } else {
       showPrompt(opts.prompt, opts.json);
     }

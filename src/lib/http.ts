@@ -10,8 +10,6 @@ import { CliError, EXIT } from "./errors.js";
 import type {
   ConnectOtlpRequest,
   ConnectOtlpResponse,
-  ConnectPullRequest,
-  ConnectPullResponse,
   DeviceAuthResponse,
   DeviceTokenResponse,
   SetupConfigResponse,
@@ -46,12 +44,20 @@ const parseBody = async (res: Response): Promise<unknown> => {
   }
 };
 
-/** A JSON request that throws a `CliError` carrying the server's message on non-2xx. */
+/** Remediation shown when an org-key call comes back unauthorized (stale / revoked / wrong-endpoint key). */
+export const ORG_KEY_HINT =
+  "your API key looks invalid or revoked — run `glassray logout`, then `glassray login` (or pass a valid --api-key)";
+
+/**
+ * A JSON request that throws a `CliError` carrying the server's message on
+ * non-2xx. `authHint` (when given) is attached to the error on a 401 so the
+ * caller can suggest a fix (e.g. `glassray logout`).
+ */
 const requestJson = async <T>(
   url: string,
-  init: RequestInit & { timeoutMs?: number } = {},
+  init: RequestInit & { timeoutMs?: number; authHint?: string } = {},
 ): Promise<T> => {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, ...rest } = init;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, authHint, ...rest } = init;
   let res: Response;
   try {
     res = await fetch(url, { ...rest, signal: AbortSignal.timeout(timeoutMs) });
@@ -64,7 +70,8 @@ const requestJson = async <T>(
     const fallback = `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""} from ${new URL(url).pathname}`;
     const rawCode = body && typeof body === "object" ? (body as Record<string, unknown>).code : undefined;
     const code = typeof rawCode === "string" ? rawCode : undefined;
-    throw new CliError(errorMessage(body, fallback), EXIT.FAILURE, code);
+    const hint = res.status === 401 ? authHint : undefined;
+    throw new CliError(errorMessage(body, fallback), EXIT.FAILURE, code, hint);
   }
   return body as T;
 };
@@ -97,6 +104,7 @@ export const exchange = (
 export const getStatus = (endpoint: string, apiKey: string): Promise<SetupStatusResponse> =>
   requestJson<SetupStatusResponse>(`${endpoint}/api/public/v1/setup/status`, {
     headers: { authorization: `Bearer ${apiKey}` },
+    authHint: ORG_KEY_HINT,
   });
 
 /** `POST /api/public/v1/setup/connect/otlp` — create a push (OTLP/SDK) trace source. */
@@ -109,18 +117,7 @@ export const connectOtlp = (
     method: "POST",
     headers: authJsonHeaders(apiKey),
     body: JSON.stringify(body),
-  });
-
-/** `POST /api/public/v1/setup/connect/pull` — connect a pull trace source. */
-export const connectPull = (
-  endpoint: string,
-  apiKey: string,
-  body: ConnectPullRequest,
-): Promise<ConnectPullResponse> =>
-  requestJson<ConnectPullResponse>(`${endpoint}/api/public/v1/setup/connect/pull`, {
-    method: "POST",
-    headers: authJsonHeaders(apiKey),
-    body: JSON.stringify(body),
+    authHint: ORG_KEY_HINT,
   });
 
 // ── WorkOS device flow (RFC 8628, raw fetch — the SDK has no device methods) ────

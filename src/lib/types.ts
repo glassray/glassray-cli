@@ -56,36 +56,6 @@ export interface ConnectOtlpResponse {
   existing: boolean;
 }
 
-/** Pull providers the CLI can connect headlessly (provider key is an input, no OAuth). */
-export type PullProvider = "langfuse" | "langsmith" | "posthog";
-
-/** `POST /api/public/v1/setup/connect/pull` request — connect a pull trace source. */
-export interface ConnectPullRequest {
-  provider: PullProvider;
-  displayName?: string;
-  hostUrl?: string;
-  /** LangSmith / PostHog API key. */
-  apiKey?: string;
-  /** Langfuse public key. */
-  publicKey?: string;
-  /** Langfuse secret key. */
-  secretKey?: string;
-  /** LangSmith project name. */
-  projectName?: string;
-  /** PostHog project id. */
-  projectId?: string;
-}
-
-/** `POST /api/public/v1/setup/connect/pull` success — the new (or already-connected) source; a backfill sync is kicked on first connect. */
-export interface ConnectPullResponse {
-  traceSourceId: string;
-  provider: PullProvider;
-  /** Job ids of the backfill sync enqueued at connect (empty if none was kicked, e.g. on an idempotent retry). */
-  syncJobIds: string[];
-  /** True when an already-connected source matched (idempotent retry) — no new source, secret, or backfill. */
-  existing: boolean;
-}
-
 /** Per-integration connection state used across the status payload. */
 export type SetupConnectionState = "connected" | "not_connected";
 

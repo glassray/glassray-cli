@@ -215,8 +215,8 @@ output on stdout, status on stderr) and `--endpoint <url>`; the org key is read 
 | `glassray login` | Device-grant pairing → stores an org API key. `--api-key` / `GLASSRAY_TOKEN` skips it. |
 | `glassray status --json` | Sources + health, GitHub/Slack, `onboardingCompleted`, `tracePath`, traces-landed counts — poll this to decide what's left. |
 | `glassray detect --json` | Repo inspection: framework, package manager, existing tracing, provider env keys, recommended path. |
-| `glassray connect otlp` | Create a push (SDK/OTLP) source; writes the ingest key to your env file (`.env.local` or `.env`). |
-| `glassray connect langsmith\|langfuse\|posthog [--keys-from-env]` | Connect a pull source (keys → Vault, server-side). GitHub / Slack are connected in the setup wizard, not via `connect`. |
+| `glassray connect <otlp\|langsmith\|langfuse\|posthog>` | Opens the dashboard **sources** settings page in your browser to connect a trace source; `--no-open` prints the URL instead. |
+| `glassray connect <slack\|github>` | Opens the **notifications** (slack) / **integrations** (github) settings page in your browser. Programmatic/CI source-connect uses the `connect_otlp_source` / `connect_pull_source` MCP tools. |
 | `glassray instrument [--run\|--prompt-only]` | Add the SDK + 4 tags. Shows the prompt (clipboard) and offers to run Claude Code — sandboxed (`@glassray` installs only, never commits/pushes); `--run` runs it, `--prompt-only` prints. |
 | `glassray verify --wait` | The exit gate: poll `status` until a real trace lands; prints the diagnosis ladder on failure. |
 | `glassray mcp add` | Register the cloud MCP server (28 tools) in `.mcp.json`. |
