@@ -110,7 +110,9 @@ const runWithClaude = async (prompt: string, cwd: string, json: boolean): Promis
     detail("re-run `glassray instrument`, or `glassray instrument --prompt-only` to wire it in yourself");
     return;
   }
-  spin.succeed("Claude Code finished");
+  // Clear the spinner silently — the summary card's header is the one completion
+  // marker (calling `succeed` too would print "Claude Code finished" twice).
+  spin.stop();
   printClaudeSummary(result);
 };
 

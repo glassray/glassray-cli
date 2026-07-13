@@ -91,15 +91,23 @@ interface Pending {
   entry: { kind: "edit"; file: string } | { kind: "install"; packages: string[] } | { kind: "other" };
 }
 
+/** A token carrying a shell metacharacter — where the package list ends. */
+const SHELL_META = /[|<>&;]/;
+
 /** If `cmd` is a package install, the packages it installs; else `null`. */
 const parseInstall = (cmd: string): string[] | null => {
   const m = cmd.match(/^\s*(?:pnpm add|npm (?:install|i)|yarn add|bun add)\b\s*(.*)$/);
   if (!m) return null;
-  // Stop at the first shell operator so a piped/redirected install
-  // (`pnpm add x 2>&1 | tail`) doesn't drag `2>&1`/`|`/`tail` into the list.
-  const args = (m[1] ?? "").split(/\s*(?:\||&&|;|>|<|2>&1)\s*/)[0] ?? "";
-  const specs = args.split(/\s+/).filter((t) => t && !t.startsWith("-"));
-  return specs.length > 0 ? specs : null;
+  const packages: string[] = [];
+  for (const tok of (m[1] ?? "").trim().split(/\s+/)) {
+    if (!tok) continue;
+    // Stop at the first shell operator/redirect (`2>&1`, `|`, `>out`, `&&`) so a
+    // piped/redirected install doesn't drag those tokens into the package list.
+    if (SHELL_META.test(tok)) break;
+    if (tok.startsWith("-")) continue; // skip flags
+    packages.push(tok);
+  }
+  return packages.length > 0 ? packages : null;
 };
 
 /** A repo-relative path for display (absolute → relative to cwd, falling back to the input). */
