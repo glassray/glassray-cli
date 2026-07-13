@@ -49,16 +49,43 @@ const showPrompt = (prompt: string, json: boolean): void => {
   detail("then re-run `glassray verify --wait` to confirm traces are arriving");
 };
 
-/** Run the prompt through the local `claude` binary; returns its exit code. */
-const runWithClaude = async (prompt: string, cwd: string, json: boolean): Promise<void> => {
+/**
+ * Hand the prompt to the local `claude` binary. `interactive` (a human at a TTY)
+ * launches Claude Code's full TUI in place — the user watches and approves its
+ * edits, then control returns here; headless (CI / non-TTY) runs `claude -p`
+ * behind a spinner. Returns nothing; throws on a non-zero exit in either mode
+ * so the process exits with a failure code.
+ */
+const runWithClaude = async (
+  prompt: string,
+  cwd: string,
+  json: boolean,
+  interactive: boolean,
+): Promise<void> => {
+  if (interactive) {
+    // A full-screen TUI can't share the terminal with a spinner — hand over cleanly.
+    info("Handing this to Claude Code — approve its edits, then control returns here.");
+    const code = await runClaude(prompt, cwd, true);
+    if (code !== 0) {
+      // No printData here — a failure must not emit a partial JSON object, or a
+      // caller like `setup --json` loses ownership of stdout. stdout stays clean
+      // (same as the headless failure path); the exit code rides the error.
+      throw new CliError(
+        `Claude Code exited (code ${code}) — re-run \`glassray instrument\`, or \`--prompt-only\` to do it yourself`,
+      );
+    }
+    success("Claude Code finished — review the changes before you commit");
+    if (json) printData({ mode: "claude", exitCode: code, interactive: true });
+    return;
+  }
   const spin = spinner("Adding tracing to your code with Claude Code…");
-  const code = await runClaude(prompt, cwd);
+  const code = await runClaude(prompt, cwd, false);
   if (code !== 0) {
     spin.fail(`Claude Code stopped (exit ${code})`);
     throw new CliError("re-run `glassray instrument` to try again, or `--prompt-only` to do it yourself");
   }
   spin.succeed("Your agent now sends traces — review the changes before you commit");
-  if (json) printData({ mode: "claude", exitCode: code });
+  if (json) printData({ mode: "claude", exitCode: code, interactive: false });
 };
 
 /**
@@ -84,8 +111,14 @@ export const performInstrument = async (opts: {
     return;
   }
 
+  // On a TTY a human can drive Claude Code's interactive TUI; in CI/headless we
+  // fall back to `claude -p` (which needs the scoped permission flags to apply edits).
+  // The TUI inherits stdin, so BOTH streams must be terminals — stdout alone
+  // (e.g. stdin piped/closed) would leave the TUI waiting on input it can't get.
+  const interactive = !!process.stdout.isTTY && !!process.stdin.isTTY;
+
   if (opts.forceRun) {
-    await runWithClaude(opts.prompt, opts.cwd, opts.json);
+    await runWithClaude(opts.prompt, opts.cwd, opts.json, interactive);
     return;
   }
 
@@ -93,7 +126,7 @@ export const performInstrument = async (opts: {
   if (process.stdin.isTTY) {
     info("Time to add tracing to your code. I can run Claude Code for you, or give you the prompt to run yourself.");
     if (await askYesNo("Run Claude Code now?")) {
-      await runWithClaude(opts.prompt, opts.cwd, opts.json);
+      await runWithClaude(opts.prompt, opts.cwd, opts.json, true);
     } else {
       showPrompt(opts.prompt, opts.json);
     }

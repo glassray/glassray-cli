@@ -35,6 +35,11 @@ recovery.
 Nothing of your source code transits Glassray. The CLI edits files locally (or hands a prompt to
 your own Claude Code) and talks to the API only over HTTPS.
 
+When it runs Claude Code for you, that session is **sandboxed**: it may only install the
+`@glassray` package scope (never arbitrary packages), and it can **never `git commit` or `git
+push`** — those are hard-blocked, not just discouraged, so the change always lands uncommitted in
+your working tree for you to review and commit yourself.
+
 ## Commands
 
 Run `glassray --help` for the branded reference, or `glassray <command> --help` for flags.
@@ -48,7 +53,8 @@ glassray whoami                Which org and user the active key resolves to
 glassray detect                Inspect the repo: framework, tracing, provider keys
 glassray connect <target>      otlp · langsmith · langfuse · posthog · github · slack
 glassray instrument            Add the SDK + tags; shows the prompt (copied to clipboard) and
-                               offers to run Claude Code. Flags: --run, --prompt-only
+                               offers to run Claude Code (sandboxed: @glassray installs only,
+                               never commits/pushes). Flags: --run, --prompt-only
 glassray verify                The exit gate: poll until a real trace lands
 glassray status                Cloud account summary: sources, health, GitHub/Slack
 ```

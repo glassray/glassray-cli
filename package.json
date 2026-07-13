@@ -1,6 +1,6 @@
 {
   "name": "@glassray/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The Glassray CLI: one binary for cloud setup and the local Coach experience.",
   "keywords": [
     "glassray",
