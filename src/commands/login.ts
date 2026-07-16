@@ -10,8 +10,8 @@ import { boolFlag, parseCommand, strFlag, type Context } from "../lib/context.js
 import { runDeviceAuth } from "../lib/device-auth.js";
 import { CliError } from "../lib/errors.js";
 import { exchange, getConfig, getStatus } from "../lib/http.js";
-import { prompt } from "../lib/prompt.js";
-import type { SetupExchangeResponse } from "../lib/types.js";
+import { pick, prompt } from "../lib/prompt.js";
+import type { SetupExchangeOrgOption, SetupExchangeRequest, SetupExchangeResponse } from "../lib/types.js";
 import { bold, bullet, card, dim, info, link, PALETTE, paint, printData, success } from "../lib/ui.js";
 
 /** Ask for a new organization's name on a fresh sign-up. TTY-only (the caller gates on `isTTY`). */
@@ -21,10 +21,47 @@ const promptOrgName = async (): Promise<string> => {
 };
 
 /**
- * Exchange the device-grant token for an org key. On a fresh sign-up the user
- * has no organization yet and the server replies `org-name-required`; on a TTY
- * we ask for a name and retry, creating the org — the browser wizard then just
- * does the onboarding. (Non-TTY re-throws the guidance to pass `--org-name`.)
+ * Pull the selectable orgs out of a `multi-org` 409's structured body.
+ * `undefined` when the server predates the payload (older deployment) — the
+ * caller then falls back to the plain error + `--org` guidance.
+ */
+const parseOrgOptions = (
+  payload: Record<string, unknown> | undefined,
+): SetupExchangeOrgOption[] | undefined => {
+  if (!payload || !Array.isArray(payload.orgs)) return undefined;
+  const orgs = payload.orgs.filter((o): o is SetupExchangeOrgOption => {
+    if (!o || typeof o !== "object") return false;
+    const rec = o as Record<string, unknown>;
+    return typeof rec.id === "string" && typeof rec.name === "string";
+  });
+  return orgs.length > 0 ? orgs : undefined;
+};
+
+/**
+ * The interactive org picker shown when the account belongs to several orgs:
+ * every org (non-admin ones marked — the exchange only mints keys for admins),
+ * plus a "create a new organization" escape hatch. Returns the follow-up
+ * exchange request for the choice. TTY-only (the caller gates).
+ */
+const pickOrg = async (orgs: SetupExchangeOrgOption[]): Promise<SetupExchangeRequest> => {
+  const labels = orgs.map(
+    (o) => `${o.name}${o.roleSlug && o.roleSlug !== "admin" ? dim(" — needs admin") : ""}`,
+  );
+  const chosen = await pick("Which organization do you want to set up?", [
+    ...labels,
+    "Create a new organization…",
+  ]);
+  if (chosen < orgs.length) return { organizationId: orgs[chosen]!.id };
+  const orgName = await prompt("New organization name:");
+  return { orgName, createOrg: true };
+};
+
+/**
+ * Exchange the device-grant token for an org key, resolving the two interactive
+ * cases on a TTY: a fresh sign-up (`org-name-required` → ask for a name and
+ * create the org), and a multi-org account (`multi-org` → picker over the 409's
+ * orgs, or create a new one) — the browser wizard then just does the
+ * onboarding. Non-TTY re-throws the server guidance (`--org-name` / `--org`).
  */
 const exchangeWithOrgPrompt = async (
   ctx: Context,
@@ -38,9 +75,18 @@ const exchangeWithOrgPrompt = async (
   try {
     return await exchange(ctx.endpoint, accessToken, req);
   } catch (err) {
-    if (err instanceof CliError && err.code === "org-name-required" && process.stdin.isTTY) {
-      const orgName = await promptOrgName();
-      return exchange(ctx.endpoint, accessToken, { ...req, orgName });
+    if (err instanceof CliError && process.stdin.isTTY) {
+      if (err.code === "org-name-required") {
+        const orgName = await promptOrgName();
+        return exchange(ctx.endpoint, accessToken, { ...req, orgName });
+      }
+      if (err.code === "multi-org") {
+        const orgs = parseOrgOptions(err.payload);
+        if (orgs) {
+          const choice = await pickOrg(orgs);
+          return exchange(ctx.endpoint, accessToken, { ...req, ...choice });
+        }
+      }
     }
     throw err;
   }

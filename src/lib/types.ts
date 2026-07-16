@@ -23,6 +23,16 @@ export interface SetupExchangeRequest {
   orgName?: string;
   /** Which org to scope to when the user belongs to several (id, slug, or name) — validated against their memberships. */
   organizationId?: string;
+  /** Provision a new org named `orgName` even though the user already has orgs — the picker's "create" choice. */
+  createOrg?: boolean;
+}
+
+/** One selectable org in the exchange's `multi-org` 409 body — rendered as the CLI's org picker. */
+export interface SetupExchangeOrgOption {
+  id: string;
+  name: string;
+  /** The caller's role in that org (`null` when unknown) — non-admin orgs are marked in the picker (the exchange admin-gates). */
+  roleSlug: string | null;
 }
 
 /** `POST /api/public/setup/exchange` success — the minted org API key, returned exactly once. */
@@ -43,6 +53,15 @@ export interface SetupExchangeResponse {
 export interface ConnectOtlpRequest {
   /** Human label for the source (e.g. the repo or service name). */
   displayName: string;
+  /** Project (`proj_<ulid>`) the source's traces should land in. Omitted → the org's default project. */
+  projectId?: string;
+}
+
+/** Minimal project echo — where a connected source's traces will land. */
+export interface SetupProjectRef {
+  id: string;
+  name: string;
+  slug: string;
 }
 
 /** `POST /api/public/v1/setup/connect/otlp` success — the new (or already-connected) source and its ingest key. */
@@ -54,6 +73,28 @@ export interface ConnectOtlpResponse {
   endpoint: string;
   /** True when an already-connected source matched (idempotent retry) — nothing new was minted. */
   existing: boolean;
+  /** The project the source landed in (the EXISTING source's project on an idempotent retry). */
+  project: SetupProjectRef;
+}
+
+/**
+ * `POST /api/public/v1/setup/project` request — the interactive project step.
+ * Exactly one of the two: pick an existing workspace, or create a new one
+ * (slug derived server-side). Pins the org key's binding to the result (only
+ * legal while the key still sits on the org default).
+ */
+export interface SetupProjectRequest {
+  /** Existing project (`proj_<ulid>`) to scope this setup run to. */
+  projectId?: string;
+  /** Name for a new project to create and scope to. */
+  createName?: string;
+}
+
+/** `POST /api/public/v1/setup/project` success — the selected/created project, and whether the key's binding moved. */
+export interface SetupProjectResponse {
+  project: SetupProjectRef & { isDefault: boolean };
+  /** True when this call re-pointed the org key's binding to `project`. */
+  rebound: boolean;
 }
 
 /** Per-integration connection state used across the status payload. */
@@ -76,6 +117,14 @@ export interface SetupStatusSource {
 export interface SetupStatusResponse {
   organizationId: string;
   sources: SetupStatusSource[];
+  /** The org's projects (workspaces) — what the interactive project step offers before connect. */
+  projects: Array<SetupProjectRef & { isDefault: boolean }>;
+  /**
+   * The project the calling key is currently hard-bound to. Lets the picker
+   * preselect (or skip) the real binding rather than guessing the org default.
+   * Absent on older servers; `null` for keyless callers with no binding.
+   */
+  boundProjectId?: string | null;
   /** Total traces ingested across the org (the "are traces landing" signal). */
   traceCount: number;
   /** Traces ingested in the last hour — the verify gate's recency signal. */

@@ -12,11 +12,12 @@ import { openBrowser } from "../lib/browser.js";
 import { detect } from "../lib/detect.js";
 import { CliError, EXIT } from "../lib/errors.js";
 import { detectEnvFile, INGEST_KEY_ENV_VAR, upsertEnvFile } from "../lib/env-file.js";
-import { connectOtlp, getConfig, getStatus } from "../lib/http.js";
-import { confirm } from "../lib/prompt.js";
+import { connectOtlp, getConfig, getStatus, selectSetupProject } from "../lib/http.js";
 import { buildInstrumentPrompt } from "../lib/instrument-prompt.js";
 import { addMcpServer } from "../lib/mcp-config.js";
 import { pollUntil } from "../lib/poll.js";
+import { checkProjectRoot, resolveProjectDir } from "../lib/project-root.js";
+import { confirm, pick, prompt } from "../lib/prompt.js";
 import { track } from "../lib/telemetry.js";
 import type { SetupStatusResponse } from "../lib/types.js";
 import {
@@ -76,6 +77,144 @@ const printOnboardingStatus = (s: SetupStatusResponse): void => {
   ]);
 };
 
+/**
+ * Make sure we're standing in the user's project before wiring anything in.
+ * `setup` writes the ingest key, `.mcp.json`, and the SDK edits into the CURRENT
+ * directory — so if the cwd doesn't look like a project root (home, a bare
+ * shell, a Spotlight-launched terminal), ask for the directory and `chdir` into
+ * it so every downstream `process.cwd()` step lands there. Non-interactive with
+ * a bad cwd is a hard error — we won't silently instrument an arbitrary location.
+ */
+const ensureInProject = async (interactive: boolean): Promise<void> => {
+  const cwd = process.cwd();
+  const check = checkProjectRoot(cwd);
+  if (check.ok) {
+    success(`Working in ${bold(cwd)}${check.reason ? dim(` · ${check.reason}`) : ""}`);
+    return;
+  }
+  if (!interactive) {
+    throw new CliError(
+      `Running in ${cwd}, which doesn't look like your project — no package.json / pyproject.toml and not inside a git repo. cd into your project and re-run \`glassray setup\`.`,
+      EXIT.FAILURE,
+      "not-in-project",
+    );
+  }
+  warn(`This doesn't look like a project directory: ${cwd}`);
+  detail("setup wires the SDK and writes .mcp.json here — point it at your project instead.");
+  for (;;) {
+    const answer = await prompt("Path to your project:");
+    const res = resolveProjectDir(answer);
+    if (!res.ok) {
+      warn(res.error);
+      continue;
+    }
+    // Chosen dir still doesn't look like a project — let them override, but confirm.
+    if (!res.root.ok && !(await confirm(`${res.dir} doesn't look like a project either — use it anyway?`, false))) {
+      continue;
+    }
+    process.chdir(res.dir);
+    success(`Working in ${bold(res.dir)}${res.root.reason ? dim(` · ${res.root.reason}`) : ""}`);
+    return;
+  }
+};
+
+/** One project as the setup surface reports it — `SetupProjectRef` + the default marker. */
+type ProjectOption = SetupStatusResponse["projects"][number];
+
+/**
+ * Create a project from the terminal: ask for a name, send it to
+ * `POST /v1/setup/project` (slug derived server-side, key pinned there), and
+ * re-ask on a duplicate name instead of dying. TTY-only (the caller gates).
+ */
+const createProjectLoop = async (ctx: Context, apiKey: string): Promise<ProjectOption> => {
+  for (;;) {
+    const name = await prompt("New project name:");
+    try {
+      const res = await selectSetupProject(ctx.endpoint, apiKey, { createName: name });
+      success(`Created project ${bold(`"${res.project.name}"`)} ${dim(`(${res.project.slug})`)}`);
+      return res.project;
+    } catch (err) {
+      if (err instanceof CliError && err.code === "project-exists") {
+        warn(err.message);
+        continue;
+      }
+      throw err;
+    }
+  }
+};
+
+/**
+ * The project step — which workspace this setup run operates in. Runs BEFORE
+ * the browser wizard so onboarding, integrations, AND the new source all land
+ * in the chosen project (they're all project-owned). Branches on the key's
+ * binding (`boundProjectId`): a key already pinned to a NON-default project is
+ * hard-bound (the server uses that binding regardless), so we announce instead
+ * of asking. Otherwise on a TTY: a numbered picker over the org's projects
+ * (bound-or-default preselected, so Enter keeps the golden path) plus a
+ * "create a new project" option; the choice is sent to `POST /v1/setup/project`,
+ * which pins the key there. Non-interactive → the bound-or-default project,
+ * no prompt, no server call. `undefined` only when the server predates the
+ * projects field (rollout stagger) — the server default then applies.
+ */
+const projectStep = async (
+  ctx: Context,
+  apiKey: string,
+  status: SetupStatusResponse,
+  interactive: boolean,
+): Promise<ProjectOption | undefined> => {
+  const projects = status.projects ?? [];
+  const bound = status.boundProjectId
+    ? projects.find((p) => p.id === status.boundProjectId)
+    : undefined;
+  const defaultProject = projects.find((p) => p.isDefault) ?? projects[0];
+
+  // Key already pinned to a specific workspace (a re-run after a prior pick):
+  // the server uses that binding regardless of what we send — announce, don't ask.
+  if (bound && !bound.isDefault) {
+    info(`Setting up project ${bold(`"${bound.name}"`)} ${dim("— your key is bound here")}`);
+    return bound;
+  }
+
+  if (!interactive || projects.length === 0) {
+    if (defaultProject) info(`Setting up project ${bold(`"${defaultProject.name}"`)}`);
+    return defaultProject;
+  }
+
+  // Pick (bound-or-default preselected — Enter keeps it) or create a new one.
+  const preselect = bound ?? defaultProject;
+  const defaultIndex = Math.max(
+    projects.findIndex((p) => p.id === preselect?.id),
+    0,
+  );
+  const chosen = await pick(
+    "Which project (workspace) are you setting up?",
+    [...projects.map((p) => `${p.name} ${dim(`(${p.slug})`)}`), "Create a new project…"],
+    defaultIndex,
+  );
+
+  if (chosen >= projects.length) return createProjectLoop(ctx, apiKey);
+
+  const picked = projects[chosen]!;
+  // Already the key's binding — nothing to change server-side.
+  if (picked.id === status.boundProjectId) {
+    info(`Setting up project ${bold(`"${picked.name}"`)}`);
+    return picked;
+  }
+  try {
+    const res = await selectSetupProject(ctx.endpoint, apiKey, { projectId: picked.id });
+    info(`Setting up project ${bold(`"${res.project.name}"`)}`);
+    return res.project;
+  } catch (err) {
+    // Rollout-staggered server without the project endpoint: keep the choice
+    // locally — the connect step still lands the source (and rebinds) with it.
+    if (err instanceof CliError && err.message.startsWith("HTTP 404")) {
+      info(`Setting up project ${bold(`"${picked.name}"`)}`);
+      return picked;
+    }
+    throw err;
+  }
+};
+
 /** The `setup` command — the v3 launcher. */
 export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   const { values } = parseCommand(args, {
@@ -109,8 +248,27 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   success(`Signed in to ${bold(cred.orgName)}${cred.userEmail ? ` as ${dim(cred.userEmail)}` : ""}`);
   track(ctx, { phase: "setup", step: "paired" });
 
-  // ── onboarding: hand off to the browser wizard, mirror status ────────────────
+  // ── make sure we're in the project we're about to instrument ─────────────────
+  // Everything local below (ingest key, .mcp.json, SDK wiring) writes into the
+  // cwd — confirm it's a real project (or chdir into one) BEFORE the long browser
+  // wizard, so a wrong-directory run fails fast instead of at the very end.
+  await ensureInProject(interactive);
+  track(ctx, { phase: "setup", step: "project-dir" });
+
+  // ── project step: pick or create the workspace this run sets up ─────────────
+  // Runs BEFORE the wizard hand-off — onboarding, integrations, and the source
+  // are all project-owned, so the choice has to be pinned (key rebind) first
+  // for the wizard and the status poll to operate on the right workspace.
   let status = await getStatus(ctx.endpoint, cred.apiKey);
+  const project = await projectStep(ctx, cred.apiKey, status, interactive);
+  if (project && project.id !== status.boundProjectId) {
+    // The pick moved the key's binding — re-read status so the wizard check +
+    // per-step mirror reflect the chosen workspace, not the old binding.
+    status = await getStatus(ctx.endpoint, cred.apiKey);
+  }
+  track(ctx, { phase: "setup", step: "project" });
+
+  // ── onboarding: hand off to the browser wizard, mirror status ────────────────
   if (!status.onboardingCompleted) {
     // Browser-only: the wizard is a browser flow — a non-interactive session
     // (CI / no browser) cannot drive it. Point such callers at the subcommands.
@@ -122,7 +280,7 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
         `Finish onboarding once where you can open a browser — run \`glassray setup\` there, or open ${appUrl} and complete it. After that CI can re-run \`glassray setup --api-key\`: it finishes locally without a browser — minting the ingest key into .env.local on the SDK path, or just verifying an existing-provider source. (\`instrument --prompt-only\` / \`verify --wait\` alone can't: neither creates a source or mints a key.) Agents on the MCP server can instead create a source with the connect_otlp_source / connect_pull_source tools (not CLI commands).`,
       );
     }
-    const wizardUrl = `${appUrl}/api/setup/enter?org=${encodeURIComponent(cred.organizationId)}&src=cli`;
+    const wizardUrl = `${appUrl}/api/setup/enter?org=${encodeURIComponent(cred.organizationId)}&src=cli${project ? `&project=${encodeURIComponent(project.id)}` : ""}`;
     blank();
     info("Now finish setup in your browser — connect GitHub, your traces, and Slack.");
     if (open) openBrowser(wizardUrl);
@@ -173,13 +331,24 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     // terminal (not the browser) owns it. This ALWAYS runs on the SDK path —
     // `--skip-instrument` and an already-present @glassray/tracing only gate the
     // code-editing prompt below, NEVER the key/source (else an instrumented repo
-    // with no key/source would be a dead end).
+    // with no key/source would be a dead end). The source lands in the project
+    // chosen up top (the key is already pinned there; sending the id is a
+    // belt-and-braces echo the server validates).
     const spin = spinner("Setting up where your traces will land…");
     const res = await connectOtlp(ctx.endpoint, cred.apiKey, {
       displayName: path.basename(report.cwd) || "agent",
+      ...(project ? { projectId: project.id } : {}),
     });
     otlpEndpoint = res.endpoint;
-    spin.succeed("Trace ingestion ready");
+    // `res.project` may be absent from a rollout-staggered server that predates
+    // the project echo — fall back to a generic message rather than crash after
+    // the source is already created (which would strand the ingest key below).
+    const landedProject = res.project ? bold(`"${res.project.name}"`) : "your project";
+    spin.succeed(
+      res.existing
+        ? `Trace ingestion ready — source already exists in project ${landedProject}`
+        : `Trace ingestion ready — source created in project ${landedProject}`,
+    );
     if (res.ingestKey) {
       // Show the key (it's the customer's own, on their own machine) — the CLI
       // doesn't touch your files unless you say so.

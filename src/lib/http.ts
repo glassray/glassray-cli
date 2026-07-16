@@ -15,6 +15,8 @@ import type {
   SetupConfigResponse,
   SetupExchangeRequest,
   SetupExchangeResponse,
+  SetupProjectRequest,
+  SetupProjectResponse,
   SetupStatusResponse,
 } from "./types.js";
 
@@ -68,10 +70,10 @@ const requestJson = async <T>(
   const body = await parseBody(res);
   if (!res.ok) {
     const fallback = `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""} from ${new URL(url).pathname}`;
-    const rawCode = body && typeof body === "object" ? (body as Record<string, unknown>).code : undefined;
-    const code = typeof rawCode === "string" ? rawCode : undefined;
+    const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : undefined;
+    const code = typeof payload?.code === "string" ? payload.code : undefined;
     const hint = res.status === 401 ? authHint : undefined;
-    throw new CliError(errorMessage(body, fallback), EXIT.FAILURE, code, hint);
+    throw new CliError(errorMessage(body, fallback), EXIT.FAILURE, code, hint, payload);
   }
   return body as T;
 };
@@ -114,6 +116,19 @@ export const connectOtlp = (
   body: ConnectOtlpRequest,
 ): Promise<ConnectOtlpResponse> =>
   requestJson<ConnectOtlpResponse>(`${endpoint}/api/public/v1/setup/connect/otlp`, {
+    method: "POST",
+    headers: authJsonHeaders(apiKey),
+    body: JSON.stringify(body),
+    authHint: ORG_KEY_HINT,
+  });
+
+/** `POST /api/public/v1/setup/project` — pick or create the setup run's project (pins the org key there). */
+export const selectSetupProject = (
+  endpoint: string,
+  apiKey: string,
+  body: SetupProjectRequest,
+): Promise<SetupProjectResponse> =>
+  requestJson<SetupProjectResponse>(`${endpoint}/api/public/v1/setup/project`, {
     method: "POST",
     headers: authJsonHeaders(apiKey),
     body: JSON.stringify(body),
