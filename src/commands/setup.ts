@@ -12,7 +12,7 @@ import { openBrowser } from "../lib/browser.js";
 import { detect } from "../lib/detect.js";
 import { CliError, EXIT } from "../lib/errors.js";
 import { detectEnvFile, INGEST_KEY_ENV_VAR, upsertEnvFile } from "../lib/env-file.js";
-import { connectOtlp, getConfig, getStatus } from "../lib/http.js";
+import { connectOtlp, getConfig, getStatus, selectSetupProject } from "../lib/http.js";
 import { buildInstrumentPrompt } from "../lib/instrument-prompt.js";
 import { addMcpServer } from "../lib/mcp-config.js";
 import { pollUntil } from "../lib/poll.js";
@@ -118,55 +118,101 @@ const ensureInProject = async (interactive: boolean): Promise<void> => {
   }
 };
 
+/** One project as the setup surface reports it — `SetupProjectRef` + the default marker. */
+type ProjectOption = SetupStatusResponse["projects"][number];
+
 /**
- * Pick which project the new source's traces should land in (an interactive
- * onboarding step, never a flag), and always tell the user which one that is —
- * onboarding was otherwise project-blind. Branches on the key's current binding
- * (`boundProjectId`): a key already pinned to a NON-default project is
- * hard-bound (the server uses that binding regardless of what we send), so we
- * DON'T prompt — we just announce where traces land. Otherwise: one project →
- * announce + use it; several on a TTY → numbered picker with the bound (else
- * default) project preselected; non-interactive → `undefined`, so the server
- * falls back to the default (and an idempotent retry keeps the source's own
- * project). Creating a project stays a dashboard action.
+ * Create a project from the terminal: ask for a name, send it to
+ * `POST /v1/setup/project` (slug derived server-side, key pinned there), and
+ * re-ask on a duplicate name instead of dying. TTY-only (the caller gates).
  */
-const selectProject = async (
-  projects: SetupStatusResponse["projects"],
-  boundProjectId: string | null | undefined,
+const createProjectLoop = async (ctx: Context, apiKey: string): Promise<ProjectOption> => {
+  for (;;) {
+    const name = await prompt("New project name:");
+    try {
+      const res = await selectSetupProject(ctx.endpoint, apiKey, { createName: name });
+      success(`Created project ${bold(`"${res.project.name}"`)} ${dim(`(${res.project.slug})`)}`);
+      return res.project;
+    } catch (err) {
+      if (err instanceof CliError && err.code === "project-exists") {
+        warn(err.message);
+        continue;
+      }
+      throw err;
+    }
+  }
+};
+
+/**
+ * The project step — which workspace this setup run operates in. Runs BEFORE
+ * the browser wizard so onboarding, integrations, AND the new source all land
+ * in the chosen project (they're all project-owned). Branches on the key's
+ * binding (`boundProjectId`): a key already pinned to a NON-default project is
+ * hard-bound (the server uses that binding regardless), so we announce instead
+ * of asking. Otherwise on a TTY: a numbered picker over the org's projects
+ * (bound-or-default preselected, so Enter keeps the golden path) plus a
+ * "create a new project" option; the choice is sent to `POST /v1/setup/project`,
+ * which pins the key there. Non-interactive → the bound-or-default project,
+ * no prompt, no server call. `undefined` only when the server predates the
+ * projects field (rollout stagger) — the server default then applies.
+ */
+const projectStep = async (
+  ctx: Context,
+  apiKey: string,
+  status: SetupStatusResponse,
   interactive: boolean,
-): Promise<string | undefined> => {
-  const bound = boundProjectId ? projects.find((p) => p.id === boundProjectId) : undefined;
+): Promise<ProjectOption | undefined> => {
+  const projects = status.projects ?? [];
+  const bound = status.boundProjectId
+    ? projects.find((p) => p.id === status.boundProjectId)
+    : undefined;
   const defaultProject = projects.find((p) => p.isDefault) ?? projects[0];
 
-  // Key already pinned to a specific workspace (a re-run after a prior pick): the
-  // server ignores any requested project, so skip the prompt and just say where
-  // this run lands — hitting Enter on a preselected Default would otherwise lie.
+  // Key already pinned to a specific workspace (a re-run after a prior pick):
+  // the server uses that binding regardless of what we send — announce, don't ask.
   if (bound && !bound.isDefault) {
     info(`Setting up project ${bold(`"${bound.name}"`)} ${dim("— your key is bound here")}`);
-    return bound.id;
+    return bound;
   }
 
-  // One project (or nothing to choose): announce it so the user isn't blind to
-  // where traces land; non-interactive with several → undefined (server default).
-  if (projects.length <= 1) {
+  if (!interactive || projects.length === 0) {
     if (defaultProject) info(`Setting up project ${bold(`"${defaultProject.name}"`)}`);
-    return defaultProject?.id;
+    return defaultProject;
   }
-  if (!interactive) return undefined;
 
-  // Several projects, key still on Default: pick, preselecting the bound-or-default one.
+  // Pick (bound-or-default preselected — Enter keeps it) or create a new one.
   const preselect = bound ?? defaultProject;
   const defaultIndex = Math.max(
     projects.findIndex((p) => p.id === preselect?.id),
     0,
   );
   const chosen = await pick(
-    "Which project should this source's traces land in?",
-    projects.map((p) => `${p.name} ${dim(`(${p.slug})`)}`),
+    "Which project (workspace) are you setting up?",
+    [...projects.map((p) => `${p.name} ${dim(`(${p.slug})`)}`), "Create a new project…"],
     defaultIndex,
   );
-  detail("need a new project? create it in the dashboard (Settings → Projects) and re-run");
-  return projects[chosen]!.id;
+
+  if (chosen >= projects.length) return createProjectLoop(ctx, apiKey);
+
+  const picked = projects[chosen]!;
+  // Already the key's binding — nothing to change server-side.
+  if (picked.id === status.boundProjectId) {
+    info(`Setting up project ${bold(`"${picked.name}"`)}`);
+    return picked;
+  }
+  try {
+    const res = await selectSetupProject(ctx.endpoint, apiKey, { projectId: picked.id });
+    info(`Setting up project ${bold(`"${res.project.name}"`)}`);
+    return res.project;
+  } catch (err) {
+    // Rollout-staggered server without the project endpoint: keep the choice
+    // locally — the connect step still lands the source (and rebinds) with it.
+    if (err instanceof CliError && err.message.startsWith("HTTP 404")) {
+      info(`Setting up project ${bold(`"${picked.name}"`)}`);
+      return picked;
+    }
+    throw err;
+  }
 };
 
 /** The `setup` command — the v3 launcher. */
@@ -209,8 +255,20 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   await ensureInProject(interactive);
   track(ctx, { phase: "setup", step: "project-dir" });
 
-  // ── onboarding: hand off to the browser wizard, mirror status ────────────────
+  // ── project step: pick or create the workspace this run sets up ─────────────
+  // Runs BEFORE the wizard hand-off — onboarding, integrations, and the source
+  // are all project-owned, so the choice has to be pinned (key rebind) first
+  // for the wizard and the status poll to operate on the right workspace.
   let status = await getStatus(ctx.endpoint, cred.apiKey);
+  const project = await projectStep(ctx, cred.apiKey, status, interactive);
+  if (project && project.id !== status.boundProjectId) {
+    // The pick moved the key's binding — re-read status so the wizard check +
+    // per-step mirror reflect the chosen workspace, not the old binding.
+    status = await getStatus(ctx.endpoint, cred.apiKey);
+  }
+  track(ctx, { phase: "setup", step: "project" });
+
+  // ── onboarding: hand off to the browser wizard, mirror status ────────────────
   if (!status.onboardingCompleted) {
     // Browser-only: the wizard is a browser flow — a non-interactive session
     // (CI / no browser) cannot drive it. Point such callers at the subcommands.
@@ -222,7 +280,7 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
         `Finish onboarding once where you can open a browser — run \`glassray setup\` there, or open ${appUrl} and complete it. After that CI can re-run \`glassray setup --api-key\`: it finishes locally without a browser — minting the ingest key into .env.local on the SDK path, or just verifying an existing-provider source. (\`instrument --prompt-only\` / \`verify --wait\` alone can't: neither creates a source or mints a key.) Agents on the MCP server can instead create a source with the connect_otlp_source / connect_pull_source tools (not CLI commands).`,
       );
     }
-    const wizardUrl = `${appUrl}/api/setup/enter?org=${encodeURIComponent(cred.organizationId)}&src=cli`;
+    const wizardUrl = `${appUrl}/api/setup/enter?org=${encodeURIComponent(cred.organizationId)}&src=cli${project ? `&project=${encodeURIComponent(project.id)}` : ""}`;
     blank();
     info("Now finish setup in your browser — connect GitHub, your traces, and Slack.");
     if (open) openBrowser(wizardUrl);
@@ -273,16 +331,13 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     // terminal (not the browser) owns it. This ALWAYS runs on the SDK path —
     // `--skip-instrument` and an already-present @glassray/tracing only gate the
     // code-editing prompt below, NEVER the key/source (else an instrumented repo
-    // with no key/source would be a dead end).
-    // Project step (after pairing, before connect): which workspace the
-    // source's traces land in — sent with the connect, echoed back below.
-    // `?? []` tolerates a rollout-staggered server whose setup-status predates
-    // the projects field (selectProject would otherwise crash on `.find`).
-    const projectId = await selectProject(status.projects ?? [], status.boundProjectId, interactive);
+    // with no key/source would be a dead end). The source lands in the project
+    // chosen up top (the key is already pinned there; sending the id is a
+    // belt-and-braces echo the server validates).
     const spin = spinner("Setting up where your traces will land…");
     const res = await connectOtlp(ctx.endpoint, cred.apiKey, {
       displayName: path.basename(report.cwd) || "agent",
-      ...(projectId ? { projectId } : {}),
+      ...(project ? { projectId: project.id } : {}),
     });
     otlpEndpoint = res.endpoint;
     // `res.project` may be absent from a rollout-staggered server that predates

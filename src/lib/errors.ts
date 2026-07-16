@@ -22,12 +22,21 @@ export class CliError extends Error {
   readonly code?: string;
   /** An optional remediation shown under the error (e.g. "run `glassray logout`"). */
   readonly hint?: string;
-  constructor(message: string, exitCode: number = EXIT.FAILURE, code?: string, hint?: string) {
+  /** The server's full parsed error body, for callers that need structured fields beyond `code` (e.g. the multi-org 409's `orgs` list). */
+  readonly payload?: Record<string, unknown>;
+  constructor(
+    message: string,
+    exitCode: number = EXIT.FAILURE,
+    code?: string,
+    hint?: string,
+    payload?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "CliError";
     this.exitCode = exitCode;
     this.code = code;
     this.hint = hint;
+    this.payload = payload;
   }
 }
 

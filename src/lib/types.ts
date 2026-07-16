@@ -23,6 +23,16 @@ export interface SetupExchangeRequest {
   orgName?: string;
   /** Which org to scope to when the user belongs to several (id, slug, or name) — validated against their memberships. */
   organizationId?: string;
+  /** Provision a new org named `orgName` even though the user already has orgs — the picker's "create" choice. */
+  createOrg?: boolean;
+}
+
+/** One selectable org in the exchange's `multi-org` 409 body — rendered as the CLI's org picker. */
+export interface SetupExchangeOrgOption {
+  id: string;
+  name: string;
+  /** The caller's role in that org (`null` when unknown) — non-admin orgs are marked in the picker (the exchange admin-gates). */
+  roleSlug: string | null;
 }
 
 /** `POST /api/public/setup/exchange` success — the minted org API key, returned exactly once. */
@@ -65,6 +75,26 @@ export interface ConnectOtlpResponse {
   existing: boolean;
   /** The project the source landed in (the EXISTING source's project on an idempotent retry). */
   project: SetupProjectRef;
+}
+
+/**
+ * `POST /api/public/v1/setup/project` request — the interactive project step.
+ * Exactly one of the two: pick an existing workspace, or create a new one
+ * (slug derived server-side). Pins the org key's binding to the result (only
+ * legal while the key still sits on the org default).
+ */
+export interface SetupProjectRequest {
+  /** Existing project (`proj_<ulid>`) to scope this setup run to. */
+  projectId?: string;
+  /** Name for a new project to create and scope to. */
+  createName?: string;
+}
+
+/** `POST /api/public/v1/setup/project` success — the selected/created project, and whether the key's binding moved. */
+export interface SetupProjectResponse {
+  project: SetupProjectRef & { isDefault: boolean };
+  /** True when this call re-pointed the org key's binding to `project`. */
+  rebound: boolean;
 }
 
 /** Per-integration connection state used across the status payload. */

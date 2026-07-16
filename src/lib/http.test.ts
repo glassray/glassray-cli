@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getStatus, ORG_KEY_HINT } from "./http.js";
+import { exchange, getStatus, ORG_KEY_HINT } from "./http.js";
 import { CliError } from "./errors.js";
 
 /*
@@ -26,5 +26,15 @@ describe("org-key request hints", () => {
     const err = await getStatus("https://app.glassray.ai", "glr_ok").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).hint).toBeUndefined();
+  });
+
+  /** The org picker reads the multi-org 409's structured body — a CliError must carry it. */
+  it("carries the full error body as payload (the multi-org picker's data source)", async () => {
+    const orgs = [{ id: "org_a", name: "Acme", roleSlug: "admin" }];
+    respondWith(409, { error: "You belong to multiple organizations", code: "multi-org", orgs });
+    const err = await exchange("https://app.glassray.ai", "token", {}).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as CliError).code).toBe("multi-org");
+    expect((err as CliError).payload).toMatchObject({ orgs });
   });
 });
