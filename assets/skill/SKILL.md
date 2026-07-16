@@ -217,12 +217,12 @@ output on stdout, status on stderr) and `--endpoint <url>`; the org key is read 
 | `glassray detect --json` | Repo inspection: framework, package manager, existing tracing, provider env keys, recommended path. |
 | `glassray connect <otlp\|langsmith\|langfuse\|posthog>` | Opens the dashboard **sources** settings page in your browser to connect a trace source; `--no-open` prints the URL instead. |
 | `glassray connect <slack\|github>` | Opens the **notifications** (slack) / **integrations** (github) settings page in your browser. Programmatic/CI source-connect uses the `connect_otlp_source` / `connect_pull_source` MCP tools. |
-| `glassray instrument [--run\|--prompt-only]` | Add the SDK + 4 tags. Shows the prompt (clipboard) and offers to run Claude Code — sandboxed (`@glassray` installs only, never commits/pushes); `--run` runs it, `--prompt-only` prints. |
+| `glassray instrument [--run\|--prompt-only]` | Add the SDK + 3 tags. Shows the prompt (clipboard) and offers to run Claude Code — sandboxed (`@glassray` installs only, never commits/pushes); `--run` runs it, `--prompt-only` prints. |
 | `glassray verify --wait` | The exit gate: poll `status` until a real trace lands; prints the diagnosis ladder on failure. |
 | `glassray mcp add` | Register the cloud MCP server (28 tools) in `.mcp.json`. |
 | `glassray setup` | The launcher: sign in → browser wizard → wire the SDK locally → verify. Browser-only for first onboarding; re-runs skip the wizard once it's done. |
 
-The four metadata tags every trace must carry (they drive every breakdown): `glassray.customer`,
-`glassray.environment`, `glassray.agent`, `glassray.flow`. A missing tag silently breaks a
+The three metadata tags every trace must carry (they drive every breakdown): `glassray.customer`,
+`glassray.agent`, `glassray.flow`. A missing tag silently breaks a
 breakdown — `glassray verify` checks for a landed trace; re-run `glassray instrument` if tags
 are missing.

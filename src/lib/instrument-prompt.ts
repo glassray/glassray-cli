@@ -1,19 +1,18 @@
 /**
  * Builds the scoped instrumentation prompt handed to the customer's Claude (or
  * printed with `--prompt-only`): wire the `@glassray/tracing` SDK and stamp the
- * four Glassray metadata tags. Single-source so the prompt and the SDK can't
+ * three Glassray metadata tags. Single-source so the prompt and the SDK can't
  * drift.
  *
- * The four attribute NAMES are hardcoded here (not imported) to keep this package
+ * The three attribute NAMES are hardcoded here (not imported) to keep this package
  * dependency-free. Keep them in sync with the Glassray trace metadata convention
  * (the `glassray.*` vocabulary): if the convention changes, update this list.
  */
 import type { DetectReport } from "./detect.js";
 
-/** The four Glassray metadata attribute names the instrumented agent must emit. */
+/** The three Glassray metadata attribute names the instrumented agent must emit. */
 export const GLASSRAY_TAGS = {
   customer: "glassray.customer",
-  environment: "glassray.environment",
   agent: "glassray.agent",
   flow: "glassray.flow",
 } as const;
@@ -59,13 +58,13 @@ export const buildInstrumentPrompt = (input: InstrumentPromptInput): string => {
     ``,
     `Initialize the SDK **before** any agent/LLM code runs, and flush on shutdown so short-lived runs don't drop spans.`,
     ``,
-    `## 3. Stamp the four Glassray metadata tags`,
+    `## 3. Stamp the three Glassray metadata tags`,
     ``,
     `Set these as resource-level attributes (per-process defaults), overridable on the root span per request:`,
     ``,
     tagList,
     ``,
-    `Give each a real, stable value from this codebase — the agent's name, the deployment environment, the tenant/customer identifier, and the logical flow/behaviour. These tags drive every breakdown in Glassray; an untagged trace silently breaks them.`,
+    `Give each a real, stable value from this codebase — the agent's name, the tenant/customer identifier, and the logical flow/behaviour. These tags drive every breakdown in Glassray; an untagged trace silently breaks them.`,
     ``,
     `## 4. Keep it bounded`,
     ``,

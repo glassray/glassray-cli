@@ -20,7 +20,7 @@ const tracesLanded = (s: SetupStatusResponse): boolean =>
 const DIAGNOSIS: string[] = [
   "401 / 403 → wrong or missing org key: re-run `glassray login` (or check GLASSRAY_TOKEN)",
   "200 but zero traces → exporter endpoint wrong, or the process exited before flush() — check the OTLP endpoint + call flush on shutdown",
-  "tags missing → re-run `glassray instrument` to stamp glassray.customer / agent / flow / environment",
+  "tags missing → re-run `glassray instrument` to stamp glassray.customer / agent / flow",
 ];
 
 /** The `verify` command. */

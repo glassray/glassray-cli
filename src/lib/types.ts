@@ -43,6 +43,15 @@ export interface SetupExchangeResponse {
 export interface ConnectOtlpRequest {
   /** Human label for the source (e.g. the repo or service name). */
   displayName: string;
+  /** Project (`proj_<ulid>`) the source's traces should land in. Omitted → the org's default project. */
+  projectId?: string;
+}
+
+/** Minimal project echo — where a connected source's traces will land. */
+export interface SetupProjectRef {
+  id: string;
+  name: string;
+  slug: string;
 }
 
 /** `POST /api/public/v1/setup/connect/otlp` success — the new (or already-connected) source and its ingest key. */
@@ -54,6 +63,8 @@ export interface ConnectOtlpResponse {
   endpoint: string;
   /** True when an already-connected source matched (idempotent retry) — nothing new was minted. */
   existing: boolean;
+  /** The project the source landed in (the EXISTING source's project on an idempotent retry). */
+  project: SetupProjectRef;
 }
 
 /** Per-integration connection state used across the status payload. */
@@ -76,6 +87,14 @@ export interface SetupStatusSource {
 export interface SetupStatusResponse {
   organizationId: string;
   sources: SetupStatusSource[];
+  /** The org's projects (workspaces) — what the interactive project step offers before connect. */
+  projects: Array<SetupProjectRef & { isDefault: boolean }>;
+  /**
+   * The project the calling key is currently hard-bound to. Lets the picker
+   * preselect (or skip) the real binding rather than guessing the org default.
+   * Absent on older servers; `null` for keyless callers with no binding.
+   */
+  boundProjectId?: string | null;
   /** Total traces ingested across the org (the "are traces landing" signal). */
   traceCount: number;
   /** Traces ingested in the last hour — the verify gate's recency signal. */

@@ -22,6 +22,34 @@ export const confirm = async (question: string, defaultYes = true): Promise<bool
   }
 };
 
+/**
+ * Ask the user to pick one option from a numbered list on stderr. Prints the
+ * options (`defaultIndex` marked as the empty-Enter default), then loops until
+ * a valid number lands. Returns the chosen index.
+ */
+export const pick = async (
+  question: string,
+  options: string[],
+  defaultIndex = 0,
+): Promise<number> => {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    process.stderr.write(`  ${question}\n`);
+    options.forEach((opt, i) => {
+      const marker = i === defaultIndex ? " (default)" : "";
+      process.stderr.write(`    ${i + 1}. ${opt}${marker}\n`);
+    });
+    for (;;) {
+      const answer = (await rl.question(`  Choice [${defaultIndex + 1}]: `)).trim();
+      if (answer === "") return defaultIndex;
+      const n = Number.parseInt(answer, 10);
+      if (Number.isInteger(n) && n >= 1 && n <= options.length) return n - 1;
+    }
+  } finally {
+    rl.close();
+  }
+};
+
 /** Ask a free-text question on stderr; loops until the answer is non-empty. */
 export const prompt = async (question: string): Promise<string> => {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });

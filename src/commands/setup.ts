@@ -13,10 +13,11 @@ import { detect } from "../lib/detect.js";
 import { CliError, EXIT } from "../lib/errors.js";
 import { detectEnvFile, INGEST_KEY_ENV_VAR, upsertEnvFile } from "../lib/env-file.js";
 import { connectOtlp, getConfig, getStatus } from "../lib/http.js";
-import { confirm } from "../lib/prompt.js";
 import { buildInstrumentPrompt } from "../lib/instrument-prompt.js";
 import { addMcpServer } from "../lib/mcp-config.js";
 import { pollUntil } from "../lib/poll.js";
+import { checkProjectRoot, resolveProjectDir } from "../lib/project-root.js";
+import { confirm, pick, prompt } from "../lib/prompt.js";
 import { track } from "../lib/telemetry.js";
 import type { SetupStatusResponse } from "../lib/types.js";
 import {
@@ -76,6 +77,98 @@ const printOnboardingStatus = (s: SetupStatusResponse): void => {
   ]);
 };
 
+/**
+ * Make sure we're standing in the user's project before wiring anything in.
+ * `setup` writes the ingest key, `.mcp.json`, and the SDK edits into the CURRENT
+ * directory — so if the cwd doesn't look like a project root (home, a bare
+ * shell, a Spotlight-launched terminal), ask for the directory and `chdir` into
+ * it so every downstream `process.cwd()` step lands there. Non-interactive with
+ * a bad cwd is a hard error — we won't silently instrument an arbitrary location.
+ */
+const ensureInProject = async (interactive: boolean): Promise<void> => {
+  const cwd = process.cwd();
+  const check = checkProjectRoot(cwd);
+  if (check.ok) {
+    success(`Working in ${bold(cwd)}${check.reason ? dim(` · ${check.reason}`) : ""}`);
+    return;
+  }
+  if (!interactive) {
+    throw new CliError(
+      `Running in ${cwd}, which doesn't look like your project — no package.json / pyproject.toml and not inside a git repo. cd into your project and re-run \`glassray setup\`.`,
+      EXIT.FAILURE,
+      "not-in-project",
+    );
+  }
+  warn(`This doesn't look like a project directory: ${cwd}`);
+  detail("setup wires the SDK and writes .mcp.json here — point it at your project instead.");
+  for (;;) {
+    const answer = await prompt("Path to your project:");
+    const res = resolveProjectDir(answer);
+    if (!res.ok) {
+      warn(res.error);
+      continue;
+    }
+    // Chosen dir still doesn't look like a project — let them override, but confirm.
+    if (!res.root.ok && !(await confirm(`${res.dir} doesn't look like a project either — use it anyway?`, false))) {
+      continue;
+    }
+    process.chdir(res.dir);
+    success(`Working in ${bold(res.dir)}${res.root.reason ? dim(` · ${res.root.reason}`) : ""}`);
+    return;
+  }
+};
+
+/**
+ * Pick which project the new source's traces should land in (an interactive
+ * onboarding step, never a flag), and always tell the user which one that is —
+ * onboarding was otherwise project-blind. Branches on the key's current binding
+ * (`boundProjectId`): a key already pinned to a NON-default project is
+ * hard-bound (the server uses that binding regardless of what we send), so we
+ * DON'T prompt — we just announce where traces land. Otherwise: one project →
+ * announce + use it; several on a TTY → numbered picker with the bound (else
+ * default) project preselected; non-interactive → `undefined`, so the server
+ * falls back to the default (and an idempotent retry keeps the source's own
+ * project). Creating a project stays a dashboard action.
+ */
+const selectProject = async (
+  projects: SetupStatusResponse["projects"],
+  boundProjectId: string | null | undefined,
+  interactive: boolean,
+): Promise<string | undefined> => {
+  const bound = boundProjectId ? projects.find((p) => p.id === boundProjectId) : undefined;
+  const defaultProject = projects.find((p) => p.isDefault) ?? projects[0];
+
+  // Key already pinned to a specific workspace (a re-run after a prior pick): the
+  // server ignores any requested project, so skip the prompt and just say where
+  // this run lands — hitting Enter on a preselected Default would otherwise lie.
+  if (bound && !bound.isDefault) {
+    info(`Setting up project ${bold(`"${bound.name}"`)} ${dim("— your key is bound here")}`);
+    return bound.id;
+  }
+
+  // One project (or nothing to choose): announce it so the user isn't blind to
+  // where traces land; non-interactive with several → undefined (server default).
+  if (projects.length <= 1) {
+    if (defaultProject) info(`Setting up project ${bold(`"${defaultProject.name}"`)}`);
+    return defaultProject?.id;
+  }
+  if (!interactive) return undefined;
+
+  // Several projects, key still on Default: pick, preselecting the bound-or-default one.
+  const preselect = bound ?? defaultProject;
+  const defaultIndex = Math.max(
+    projects.findIndex((p) => p.id === preselect?.id),
+    0,
+  );
+  const chosen = await pick(
+    "Which project should this source's traces land in?",
+    projects.map((p) => `${p.name} ${dim(`(${p.slug})`)}`),
+    defaultIndex,
+  );
+  detail("need a new project? create it in the dashboard (Settings → Projects) and re-run");
+  return projects[chosen]!.id;
+};
+
 /** The `setup` command — the v3 launcher. */
 export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   const { values } = parseCommand(args, {
@@ -108,6 +201,13 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   });
   success(`Signed in to ${bold(cred.orgName)}${cred.userEmail ? ` as ${dim(cred.userEmail)}` : ""}`);
   track(ctx, { phase: "setup", step: "paired" });
+
+  // ── make sure we're in the project we're about to instrument ─────────────────
+  // Everything local below (ingest key, .mcp.json, SDK wiring) writes into the
+  // cwd — confirm it's a real project (or chdir into one) BEFORE the long browser
+  // wizard, so a wrong-directory run fails fast instead of at the very end.
+  await ensureInProject(interactive);
+  track(ctx, { phase: "setup", step: "project-dir" });
 
   // ── onboarding: hand off to the browser wizard, mirror status ────────────────
   let status = await getStatus(ctx.endpoint, cred.apiKey);
@@ -174,12 +274,20 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     // `--skip-instrument` and an already-present @glassray/tracing only gate the
     // code-editing prompt below, NEVER the key/source (else an instrumented repo
     // with no key/source would be a dead end).
+    // Project step (after pairing, before connect): which workspace the
+    // source's traces land in — sent with the connect, echoed back below.
+    const projectId = await selectProject(status.projects, status.boundProjectId, interactive);
     const spin = spinner("Setting up where your traces will land…");
     const res = await connectOtlp(ctx.endpoint, cred.apiKey, {
       displayName: path.basename(report.cwd) || "agent",
+      ...(projectId ? { projectId } : {}),
     });
     otlpEndpoint = res.endpoint;
-    spin.succeed("Trace ingestion ready");
+    spin.succeed(
+      res.existing
+        ? `Trace ingestion ready — source already exists in project ${bold(`"${res.project.name}"`)}`
+        : `Trace ingestion ready — source created in project ${bold(`"${res.project.name}"`)}`,
+    );
     if (res.ingestKey) {
       // Show the key (it's the customer's own, on their own machine) — the CLI
       // doesn't touch your files unless you say so.

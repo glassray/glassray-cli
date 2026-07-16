@@ -1,6 +1,6 @@
 /**
  * `glassray instrument` — the seam between deterministic and semantic setup.
- * Builds a scoped prompt (add the tracing SDK + the four metadata tags). By
+ * Builds a scoped prompt (add the tracing SDK + the three metadata tags). By
  * default it does NOT auto-run anything: it shows the prompt (copied to your
  * clipboard) so you can run it in whatever coding agent you like, and — when the
  * `claude` binary is present — offers to run it for you. `--run` skips the
