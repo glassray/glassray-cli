@@ -276,17 +276,23 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     // with no key/source would be a dead end).
     // Project step (after pairing, before connect): which workspace the
     // source's traces land in — sent with the connect, echoed back below.
-    const projectId = await selectProject(status.projects, status.boundProjectId, interactive);
+    // `?? []` tolerates a rollout-staggered server whose setup-status predates
+    // the projects field (selectProject would otherwise crash on `.find`).
+    const projectId = await selectProject(status.projects ?? [], status.boundProjectId, interactive);
     const spin = spinner("Setting up where your traces will land…");
     const res = await connectOtlp(ctx.endpoint, cred.apiKey, {
       displayName: path.basename(report.cwd) || "agent",
       ...(projectId ? { projectId } : {}),
     });
     otlpEndpoint = res.endpoint;
+    // `res.project` may be absent from a rollout-staggered server that predates
+    // the project echo — fall back to a generic message rather than crash after
+    // the source is already created (which would strand the ingest key below).
+    const landedProject = res.project ? bold(`"${res.project.name}"`) : "your project";
     spin.succeed(
       res.existing
-        ? `Trace ingestion ready — source already exists in project ${bold(`"${res.project.name}"`)}`
-        : `Trace ingestion ready — source created in project ${bold(`"${res.project.name}"`)}`,
+        ? `Trace ingestion ready — source already exists in project ${landedProject}`
+        : `Trace ingestion ready — source created in project ${landedProject}`,
     );
     if (res.ingestKey) {
       // Show the key (it's the customer's own, on their own machine) — the CLI
