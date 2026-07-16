@@ -144,6 +144,14 @@ const createProjectLoop = async (ctx: Context, apiKey: string): Promise<ProjectO
 };
 
 /**
+ * The project step's outcome: the workspace this run operates in, and whether
+ * the server CONFIRMED the key is pinned there (`pinned: false` only on the
+ * rollout-staggered fallback where the project endpoint doesn't exist yet — the
+ * caller must then not wait for the binding to show up in status).
+ */
+type ProjectChoice = { project: ProjectOption; pinned: boolean };
+
+/**
  * The project step — which workspace this setup run operates in. Runs BEFORE
  * the browser wizard so onboarding, integrations, AND the new source all land
  * in the chosen project (they're all project-owned). Branches on the key's
@@ -161,7 +169,7 @@ const projectStep = async (
   apiKey: string,
   status: SetupStatusResponse,
   interactive: boolean,
-): Promise<ProjectOption | undefined> => {
+): Promise<ProjectChoice | undefined> => {
   const projects = status.projects ?? [];
   const bound = status.boundProjectId
     ? projects.find((p) => p.id === status.boundProjectId)
@@ -172,12 +180,12 @@ const projectStep = async (
   // the server uses that binding regardless of what we send — announce, don't ask.
   if (bound && !bound.isDefault) {
     info(`Setting up project ${bold(`"${bound.name}"`)} ${dim("— your key is bound here")}`);
-    return bound;
+    return { project: bound, pinned: true };
   }
 
   if (!interactive || projects.length === 0) {
     if (defaultProject) info(`Setting up project ${bold(`"${defaultProject.name}"`)}`);
-    return defaultProject;
+    return defaultProject ? { project: defaultProject, pinned: true } : undefined;
   }
 
   // Pick (bound-or-default preselected — Enter keeps it) or create a new one.
@@ -186,30 +194,36 @@ const projectStep = async (
     projects.findIndex((p) => p.id === preselect?.id),
     0,
   );
+  // Skip the slug echo when it adds nothing (e.g. "Default (default)") — it
+  // would collide with the picker's own "(default)" marker.
+  const label = (p: ProjectOption): string =>
+    p.slug === p.name.toLowerCase() ? p.name : `${p.name} ${dim(`(${p.slug})`)}`;
   const chosen = await pick(
     "Which project (workspace) are you setting up?",
-    [...projects.map((p) => `${p.name} ${dim(`(${p.slug})`)}`), "Create a new project…"],
+    [...projects.map(label), "Create a new project…"],
     defaultIndex,
   );
 
-  if (chosen >= projects.length) return createProjectLoop(ctx, apiKey);
+  if (chosen >= projects.length) {
+    return { project: await createProjectLoop(ctx, apiKey), pinned: true };
+  }
 
   const picked = projects[chosen]!;
   // Already the key's binding — nothing to change server-side.
   if (picked.id === status.boundProjectId) {
     info(`Setting up project ${bold(`"${picked.name}"`)}`);
-    return picked;
+    return { project: picked, pinned: true };
   }
   try {
     const res = await selectSetupProject(ctx.endpoint, apiKey, { projectId: picked.id });
     info(`Setting up project ${bold(`"${res.project.name}"`)}`);
-    return res.project;
+    return { project: res.project, pinned: true };
   } catch (err) {
     // Rollout-staggered server without the project endpoint: keep the choice
     // locally — the connect step still lands the source (and rebinds) with it.
     if (err instanceof CliError && err.message.startsWith("HTTP 404")) {
       info(`Setting up project ${bold(`"${picked.name}"`)}`);
-      return picked;
+      return { project: picked, pinned: false };
     }
     throw err;
   }
@@ -260,10 +274,37 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   // are all project-owned, so the choice has to be pinned (key rebind) first
   // for the wizard and the status poll to operate on the right workspace.
   let status = await getStatus(ctx.endpoint, cred.apiKey);
-  const project = await projectStep(ctx, cred.apiKey, status, interactive);
-  if (project && project.id !== status.boundProjectId) {
-    // The pick moved the key's binding — re-read status so the wizard check +
-    // per-step mirror reflect the chosen workspace, not the old binding.
+  const choice = await projectStep(ctx, cred.apiKey, status, interactive);
+  const project = choice?.project;
+  if (
+    project &&
+    choice?.pinned &&
+    status.boundProjectId !== undefined &&
+    project.id !== status.boundProjectId
+  ) {
+    // The pick moved the key's binding — every decision below (wizard needed?
+    // tracePath?) must be made against the CHOSEN workspace. Don't trust one
+    // blind re-read: a deployment whose auth layer caches the key→project
+    // resolution (per-replica, ~60s) can keep serving the OLD workspace for a
+    // short window, and deciding "already onboarded" off that stale read would
+    // skip the wizard for the wrong project. Poll until the server actually
+    // reports the new binding.
+    const spin = spinner(`Switching to project "${project.name}"…`);
+    const r = await pollUntil(
+      () => getStatus(ctx.endpoint, cred.apiKey),
+      (s) => s.boundProjectId === project.id,
+      { timeoutSec: 90, intervalSec: 3 },
+    );
+    spin.stop();
+    if (!r.satisfied) {
+      throw new CliError(
+        `the server still reports your previous workspace after switching to "${project.name}" — wait a minute and re-run \`glassray setup\` (your project choice is saved)`,
+      );
+    }
+    status = r.value;
+  } else if (project && project.id !== status.boundProjectId) {
+    // Rollout-staggered server that doesn't report `boundProjectId`: a single
+    // refresh is the best we can do.
     status = await getStatus(ctx.endpoint, cred.apiKey);
   }
   track(ctx, { phase: "setup", step: "project" });
@@ -343,11 +384,11 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     // `res.project` may be absent from a rollout-staggered server that predates
     // the project echo — fall back to a generic message rather than crash after
     // the source is already created (which would strand the ingest key below).
-    const landedProject = res.project ? bold(`"${res.project.name}"`) : "your project";
+    const landedIn = res.project ? `in project ${bold(`"${res.project.name}"`)}` : "in your project";
     spin.succeed(
       res.existing
-        ? `Trace ingestion ready — source already exists in project ${landedProject}`
-        : `Trace ingestion ready — source created in project ${landedProject}`,
+        ? `Trace ingestion ready — source already exists ${landedIn}`
+        : `Trace ingestion ready — source created ${landedIn}`,
     );
     if (res.ingestKey) {
       // Show the key (it's the customer's own, on their own machine) — the CLI
