@@ -73,7 +73,7 @@ const printOnboardingStatus = (s: SetupStatusResponse): void => {
     `  ${bullet("ok")} Onboarding complete`,
     `    ${dim("GitHub")}     ${yn(s.github === "connected")}`,
     `    ${dim("Slack")}      ${yn(s.slack === "connected")}`,
-    `    ${dim("Traces")}     ${sourceLabel}${s.tracePath === "pull" ? " (existing provider)" : s.tracePath === "otlp" ? " (SDK)" : ""}`,
+    `    ${dim("Traces")}     ${sourceLabel}${s.tracePath === "pull" ? " (existing provider)" : s.tracePath === "otlp" ? " (SDK)" : s.tracePath === "vercel" ? " (Vercel drain)" : ""}`,
   ]);
 };
 
@@ -94,13 +94,13 @@ const ensureInProject = async (interactive: boolean): Promise<void> => {
   }
   if (!interactive) {
     throw new CliError(
-      `Running in ${cwd}, which doesn't look like your project — no package.json / pyproject.toml and not inside a git repo. cd into your project and re-run \`glassray setup\`.`,
+      `Running in ${cwd}, which doesn't look like your project - no package.json / pyproject.toml and not inside a git repo. cd into your project and re-run \`glassray setup\`.`,
       EXIT.FAILURE,
       "not-in-project",
     );
   }
   warn(`This doesn't look like a project directory: ${cwd}`);
-  detail("setup wires the SDK and writes .mcp.json here — point it at your project instead.");
+  detail("setup wires the SDK and writes .mcp.json here - point it at your project instead.");
   for (;;) {
     const answer = await prompt("Path to your project:");
     const res = resolveProjectDir(answer);
@@ -109,7 +109,7 @@ const ensureInProject = async (interactive: boolean): Promise<void> => {
       continue;
     }
     // Chosen dir still doesn't look like a project — let them override, but confirm.
-    if (!res.root.ok && !(await confirm(`${res.dir} doesn't look like a project either — use it anyway?`, false))) {
+    if (!res.root.ok && !(await confirm(`${res.dir} doesn't look like a project either - use it anyway?`, false))) {
       continue;
     }
     process.chdir(res.dir);
@@ -179,7 +179,7 @@ const projectStep = async (
   // Key already pinned to a specific workspace (a re-run after a prior pick):
   // the server uses that binding regardless of what we send — announce, don't ask.
   if (bound && !bound.isDefault) {
-    info(`Setting up project ${bold(`"${bound.name}"`)} ${dim("— your key is bound here")}`);
+    info(`Setting up project ${bold(`"${bound.name}"`)} ${dim("- your key is bound here")}`);
     return { project: bound, pinned: true };
   }
 
@@ -298,7 +298,7 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     spin.stop();
     if (!r.satisfied) {
       throw new CliError(
-        `the server still reports your previous workspace after switching to "${project.name}" — wait a minute and re-run \`glassray setup\` (your project choice is saved)`,
+        `the server still reports your previous workspace after switching to "${project.name}" - wait a minute and re-run \`glassray setup\` (your project choice is saved)`,
       );
     }
     status = r.value;
@@ -315,15 +315,15 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     // (CI / no browser) cannot drive it. Point such callers at the subcommands.
     if (!interactive) {
       throw new CliError(
-        "`glassray setup` needs a browser to finish first-time onboarding — there's no fully headless first run.",
+        "`glassray setup` needs a browser to finish first-time onboarding - there's no fully headless first run.",
         EXIT.FAILURE,
         "onboarding-needs-browser",
-        `Finish onboarding once where you can open a browser — run \`glassray setup\` there, or open ${appUrl} and complete it. After that CI can re-run \`glassray setup --api-key\`: it finishes locally without a browser — minting the ingest key into .env.local on the SDK path, or just verifying an existing-provider source. (\`instrument --prompt-only\` / \`verify --wait\` alone can't: neither creates a source or mints a key.) Agents on the MCP server can instead create a source with the connect_otlp_source / connect_pull_source tools (not CLI commands).`,
+        `Finish onboarding once where you can open a browser - run \`glassray setup\` there, or open ${appUrl} and complete it. After that CI can re-run \`glassray setup --api-key\`: it finishes locally without a browser - minting the ingest key into .env.local on the SDK path, or just verifying an existing-provider source. (\`instrument --prompt-only\` / \`verify --wait\` alone can't: neither creates a source or mints a key.) Agents on the MCP server can instead create a source with the connect_otlp_source / connect_pull_source tools (not CLI commands).`,
       );
     }
     const wizardUrl = `${appUrl}/api/setup/enter?org=${encodeURIComponent(cred.organizationId)}&src=cli${project ? `&project=${encodeURIComponent(project.id)}` : ""}`;
     blank();
-    info("Now finish setup in your browser — connect GitHub, your traces, and Slack.");
+    info("Now finish setup in your browser - connect GitHub, your traces, and Slack.");
     if (open) openBrowser(wizardUrl);
     info(`Opening ${link(wizardUrl)}`);
     detail("(or open that URL on any device)");
@@ -350,11 +350,11 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
       );
     }
     status = r.value;
-    bell(); // The browser step is done — nudge the user's attention back to the terminal.
+    bell(); // The browser step is done - nudge the user's attention back to the terminal.
     printOnboardingStatus(status);
     track(ctx, { phase: "setup", step: "onboarded" });
   } else {
-    success("You're already onboarded — finishing up locally.");
+    success("You're already onboarded - finishing up locally.");
   }
 
   // ── local SDK wiring — only when the SDK path was chosen (or traces skipped) ──
@@ -365,7 +365,50 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   const report = detect();
   let otlpEndpoint = `${appUrl}/api/public/otel/v1/traces`;
   if (status.tracePath === "pull") {
-    success("You're pulling traces from an existing provider — no code change needed here.");
+    success("You're pulling traces from an existing provider - no code change needed here.");
+  } else if (status.tracePath === "vercel") {
+    // Vercel drain path: the source + key live server-side and the wiring
+    // happens in the Vercel dashboard — no code change, no `.env.local` key
+    // (the key rides the drain's Authorization header, not this repo).
+    // The browser wizard usually created the drain source already (that's how
+    // tracePath became `vercel`) — server-side idempotency matches push
+    // sources by display name only, so blindly connecting with the repo dir's
+    // name would mint a DUPLICATE source + a second key that doesn't match
+    // the drain the user configured. Only create when no vercel source exists.
+    const existingDrain = status.sources.find((s) => s.provider === "vercel" && s.enabled);
+    if (existingDrain) {
+      success(
+        `Vercel drain source already connected${existingDrain.displayName ? ` (${bold(existingDrain.displayName)})` : ""} - nothing to wire here.`,
+      );
+      detail(
+        "lost the drain key? rotate it from the source's Configure dialog in the dashboard and update the drain's Authorization header",
+      );
+    } else {
+      const spin = spinner("Setting up where your Vercel traces will land…");
+      const res = await connectOtlp(ctx.endpoint, cred.apiKey, {
+        displayName: path.basename(report.cwd) || "agent",
+        platform: "vercel",
+        ...(project ? { projectId: project.id } : {}),
+      });
+      otlpEndpoint = res.endpoint;
+      const landedIn = res.project
+        ? `in project ${bold(`"${res.project.name}"`)}`
+        : "in your project";
+      spin.succeed(
+        res.existing
+          ? `Vercel drain source ready - source already exists ${landedIn}`
+          : `Vercel drain source ready - source created ${landedIn}`,
+      );
+      blank();
+      if (res.guide) {
+        card(res.guide.split("\n").map((line) => `  ${line}`));
+      }
+      if (res.existing && !res.ingestKey) {
+        warn(
+          "can't show the ingest key again - if the drain isn't configured yet, rotate the key in the dashboard and use the new value in the Authorization header",
+        );
+      }
+    }
   } else {
     // tracePath is `otlp` (SDK chosen) or `none` (traces skipped) → set up push
     // ingestion. The ingest key is minted HERE, into `.env.local`, so the
@@ -387,15 +430,15 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     const landedIn = res.project ? `in project ${bold(`"${res.project.name}"`)}` : "in your project";
     spin.succeed(
       res.existing
-        ? `Trace ingestion ready — source already exists ${landedIn}`
-        : `Trace ingestion ready — source created ${landedIn}`,
+        ? `Trace ingestion ready - source already exists ${landedIn}`
+        : `Trace ingestion ready - source created ${landedIn}`,
     );
     if (res.ingestKey) {
       // Show the key (it's the customer's own, on their own machine) — the CLI
       // doesn't touch your files unless you say so.
       blank();
       card([
-        `  ${bullet("ok")} Here's your ingest key ${dim("— your agent sends traces with this")}`,
+        `  ${bullet("ok")} Here's your ingest key ${dim("- your agent sends traces with this")}`,
         `    ${dim("Env var")}   ${INGEST_KEY_ENV_VAR}`,
         `    ${dim("Key")}       ${res.ingestKey}`,
         `    ${dim("Endpoint")}  ${otlpEndpoint}`,
@@ -407,28 +450,28 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
         // secret, and `.gitignore` can't un-track it. The key is shown above, so
         // surface it instead of writing (this is the non-interactive path too).
         warn(
-          `not auto-saving ${INGEST_KEY_ENV_VAR} — your .env.local is git-tracked (a committed secret can't be un-tracked). Run \`git rm --cached .env.local\` + gitignore it, or set ${INGEST_KEY_ENV_VAR} yourself.`,
+          `not auto-saving ${INGEST_KEY_ENV_VAR} - your .env.local is git-tracked (a committed secret can't be un-tracked). Run \`git rm --cached .env.local\` + gitignore it, or set ${INGEST_KEY_ENV_VAR} yourself.`,
         );
       } else {
         const save = interactive ? await confirm(`Save ${INGEST_KEY_ENV_VAR} to ${envFile}?`) : true;
         if (save) {
           const written = upsertEnvFile(process.cwd(), INGEST_KEY_ENV_VAR, res.ingestKey, envFile);
-          success(`Saved to ${written.file} ${dim("(gitignored — your SDK reads it from here)")}`);
+          success(`Saved to ${written.file} ${dim("(gitignored - your SDK reads it from here)")}`);
         } else {
-          detail(`no problem — pop ${INGEST_KEY_ENV_VAR} into your env yourself and you're set`);
+          detail(`no problem - pop ${INGEST_KEY_ENV_VAR} into your env yourself and you're set`);
         }
       }
     } else {
       // Idempotent retry (or a source minted elsewhere): the key can't be re-shown.
       warn(
-        `can't show the ingest key again — if ${INGEST_KEY_ENV_VAR} isn't set, rotate it in the dashboard`,
+        `can't show the ingest key again - if ${INGEST_KEY_ENV_VAR} isn't set, rotate it in the dashboard`,
       );
     }
 
     // Wire the SDK into the code — independently skippable (the key is already set).
     if (boolFlag(values, "skip-instrument")) {
       info(
-        `Skipped wiring the SDK into your code (--skip-instrument) — the ingest key is set; add @glassray/tracing yourself and read ${INGEST_KEY_ENV_VAR}.`,
+        `Skipped wiring the SDK into your code (--skip-instrument) - the ingest key is set; add @glassray/tracing yourself and read ${INGEST_KEY_ENV_VAR}.`,
       );
     } else if (report.tracing.glassraySdk) {
       success("Your code already sends traces with @glassray/tracing");
@@ -464,7 +507,7 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   status = await getStatus(ctx.endpoint, cred.apiKey);
   let verified = tracesLanded(status);
   if (!verified) {
-    info("Last step — run your agent once so we can confirm traces are arriving.");
+    info("Last step - run your agent once so we can confirm traces are arriving.");
     const spin = spinner("Watching for your first trace…");
     const r = await pollUntil(() => getStatus(ctx.endpoint, cred.apiKey), tracesLanded, {
       timeoutSec: verifyWaitSec,
@@ -492,7 +535,7 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
     });
     if (!verified) {
       throw new CliError(
-        "Almost there — no traces have arrived yet. Run your agent, then `glassray verify --wait`.",
+        "Almost there - no traces have arrived yet. Run your agent, then `glassray verify --wait`.",
       );
     }
     return;
@@ -501,17 +544,17 @@ export const cmdSetup = async (ctx: Context, args: string[]): Promise<void> => {
   card([
     rule(verified ? "You're all set" : "One step left"),
     ``,
-    `  ${bullet(verified ? "ok" : "warn")} ${verified ? "Traces are arriving — Glassray is watching your agent" : "No traces have arrived yet"}`,
+    `  ${bullet(verified ? "ok" : "warn")} ${verified ? "Traces are arriving - Glassray is watching your agent" : "No traces have arrived yet"}`,
     `    ${dim("Account")}    ${cred.orgName}`,
     `    ${dim("Traces")}     ${status.traceCount} received · ${status.sources.length} source${status.sources.length === 1 ? "" : "s"}`,
     `    ${dim("GitHub")}     ${status.github === "connected" ? "connected" : "not connected"}   ${dim("Slack")} ${status.slack === "connected" ? "connected" : "not connected"}`,
     ``,
     verified
-      ? `  Review the changes, commit, and get back to building — you won't need the dashboard.`
+      ? `  Review the changes, commit, and get back to building - you won't need the dashboard.`
       : `  Run your agent, then ${bold(paint("glassray verify --wait", PALETTE.brandBright))} to confirm it's flowing.`,
   ]);
 
   if (!verified) {
-    throw new CliError("Almost there — run your agent, then `glassray verify --wait`.");
+    throw new CliError("Almost there - run your agent, then `glassray verify --wait`.");
   }
 };

@@ -55,6 +55,8 @@ export interface ConnectOtlpRequest {
   displayName: string;
   /** Project (`proj_<ulid>`) the source's traces should land in. Omitted → the org's default project. */
   projectId?: string;
+  /** Push platform — `vercel` brands the source as a Trace Drain (response carries the drain `guide`). Omitted → `otlp`. */
+  platform?: "otlp" | "vercel";
 }
 
 /** Minimal project echo — where a connected source's traces will land. */
@@ -75,6 +77,8 @@ export interface ConnectOtlpResponse {
   existing: boolean;
   /** The project the source landed in (the EXISTING source's project on an idempotent retry). */
   project: SetupProjectRef;
+  /** Copy-paste drain setup guide — present for `platform: "vercel"` sources. */
+  guide?: string;
 }
 
 /**
@@ -135,10 +139,12 @@ export interface SetupStatusResponse {
   onboardingCompleted: boolean;
   /**
    * The trace path the wizard settled on. `otlp` (SDK push) or `none` (skipped)
-   * → the terminal wires the SDK (`instrument`) + verifies; `pull` (existing
-   * langfuse/langsmith/posthog source) → the terminal just verifies.
+   * → the terminal wires the SDK (`instrument`) + verifies; `vercel` (Trace
+   * Drain) → the terminal prints the drain guide + verifies (no code change);
+   * `pull` (existing langfuse/langsmith/posthog source) → the terminal just
+   * verifies.
    */
-  tracePath: "otlp" | "pull" | "none";
+  tracePath: "otlp" | "vercel" | "pull" | "none";
 }
 
 /**
