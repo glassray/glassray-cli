@@ -109,7 +109,7 @@ const ensureInProject = async (interactive: boolean): Promise<void> => {
       continue;
     }
     // Chosen dir still doesn't look like a project — let them override, but confirm.
-    if (!res.root.ok && !(await confirm(`${res.dir} doesn't look like a project either — use it anyway?`, false))) {
+    if (!res.root.ok && !(await confirm(`${res.dir} doesn't look like a project either — use it anyway?`))) {
       continue;
     }
     process.chdir(res.dir);
