@@ -1,20 +1,66 @@
-![Glassray](https://glassray.ai/docs/images/glassray_cover.jpeg)
+<div align="center">
 
-# @glassray/cli
+<img src="https://glassray.ai/docs/images/glassray_cover.jpeg" alt="Glassray" width="640" />
 
-[![npm](https://img.shields.io/npm/v/@glassray/cli.svg)](https://www.npmjs.com/package/@glassray/cli)
+<p><strong>One CLI for Glassray — cloud setup <em>and</em> local debugging with Coach.</strong><br/>
+The same commands work locally and in the cloud.</p>
 
-One CLI for [Glassray](https://glassray.ai): cloud setup **and** the local Coach experience.
+<p>
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="https://glassray.ai/docs/cli/setup">Docs</a> ·
+  <a href="https://glassray.ai/docs/coach/overview">Local Coach</a> ·
+  <a href="https://www.npmjs.com/package/@glassray/cli">npm</a>
+</p>
+
+<p>
+  <a href="https://www.npmjs.com/package/@glassray/cli"><img src="https://img.shields.io/npm/v/@glassray/cli.svg" alt="npm version" /></a>
+  <img src="https://img.shields.io/node/v/@glassray/cli.svg" alt="node version" />
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/@glassray/cli.svg" alt="license" /></a>
+</p>
+
+</div>
+
+<!--
+  Demo: this is where a recorded GIF of `glassray setup` belongs — the whole flow
+  ending on a verified trace. Record one and drop it in, centered, e.g.:
+  <p align="center"><img src="https://glassray.ai/docs/images/cli-setup-demo.gif" width="760" /></p>
+-->
 
 Run `glassray setup` in your agent's repo and go from nothing to a **verified, watched
 account**. It's a launcher: it signs you in, hands the connecting — GitHub, traces, Slack — to a
 quick **browser wizard**, mirrors each step back to your terminal, then wires the tracing SDK
 into your code locally. It does the thing most setup tools skip: it confirms a real,
-correctly-tagged trace has landed in Glassray before it returns.
+correctly-tagged trace has landed in Glassray **before it returns**.
 
 The same binary also runs the local, try-before-cloud
 [Coach](https://glassray.ai/docs/coach/overview) (`glassray start` plus the data verbs). Local
-and cloud are the same nouns in two environments.
+and cloud are the same commands in two environments.
+
+## Why the CLI
+
+- **It sets everything up for you.** Point it at your agent's repo and it wires the tracing SDK,
+  connects your sources, and tags your traces — the whole onboarding in one command.
+- **Then it verifies — it doesn't hope.** Setup won't return until a real, correctly-tagged trace
+  has landed in Glassray. So "done" means _watched_, not just configured.
+- **It's careful with your code.** Your source never leaves the machine — the CLI edits files
+  locally and talks to the API only over HTTPS. And when it runs Claude Code for you, that session
+  is **sandboxed**: it may only install the `@glassray` package scope and can **never** `git commit`
+  or `git push` — hard-blocked, so changes land uncommitted in your working tree for you to review.
+- **One binary, two environments.** The same tool runs Coach locally for try-before-cloud
+  debugging — then the same commands work against your cloud account.
+
+## How setup runs
+
+`setup` is a launcher, not a terminal orchestrator: it opens the browser wizard, polls until you
+finish, then does the one local step — wiring the SDK — and the verify gate.
+
+|            1 · Sign in            |                   2 · Wizard                    |          3 · Wire the SDK           |             4 · Verify ✓             |
+| :-------------------------------: | :---------------------------------------------: | :---------------------------------: | :---------------------------------: |
+| Browser device grant pairs this machine. | GitHub · traces · Slack in a browser, mirrored to your terminal. | The one local step — tags added in your code. | Poll until a real trace lands, then return. |
+
+First-time onboarding needs a browser; re-runs skip the wizard once it's done, so _"just run it
+again"_ is the universal recovery, with no duplicate orgs or sources.
 
 ## Quickstart
 
@@ -27,68 +73,36 @@ npm i -g @glassray/cli             # or install it, for `glassray` on your PATH
 glassray setup
 ```
 
-`setup` is a launcher, not a terminal orchestrator: it opens the browser onboarding wizard
-(GitHub · traces · Slack), polls until you finish, then does the one local step — wiring the SDK
-— and the verify gate. First-time onboarding needs a browser; re-runs skip the wizard once it's
-done, so _"just run it again"_ is the universal recovery, with no duplicate orgs or sources.
-
 Nothing of your source code transits Glassray. The CLI edits files locally (or hands a prompt to
 your own Claude Code) and talks to the API only over HTTPS.
-
-When it runs Claude Code for you, that session is **sandboxed**: it may only install the
-`@glassray` package scope (never arbitrary packages), and it can **never `git commit` or `git
-push`** — those are hard-blocked, not just discouraged, so the change always lands uncommitted in
-your working tree for you to review and commit yourself.
 
 ## Commands
 
 Run `glassray --help` for the branded reference, or `glassray <command> --help` for flags.
 
-**Set up (cloud)**
+| Set up (cloud)               | What it does                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `glassray setup`             | Launcher: sign in → wizard (GitHub · traces · Slack) → wire the SDK → verify               |
+| `glassray login` / `logout`  | Pair this machine (browser device grant), or clear the stored credential                  |
+| `glassray whoami`            | Which org and user the active key resolves to                                             |
+| `glassray detect`            | Inspect the repo: framework, tracing, provider keys                                       |
+| `glassray connect <target>`  | Open a source's settings page: `otlp` · `langsmith` · `langfuse` · `posthog` · `slack` · `github` |
+| `glassray instrument`        | Add the SDK + tags; offers to run Claude Code (headless, live progress; never commits/pushes) |
+| `glassray verify`            | The exit gate: poll until a real trace lands                                               |
+| `glassray status`            | Cloud account summary: sources, health, GitHub/Slack                                      |
 
-```
-glassray setup                 Launcher: sign in → browser wizard (GitHub · traces · Slack) →
-                               mirror status → wire the SDK locally → verify
-glassray login / logout        Pair this machine (browser device grant), or clear the stored credential
-glassray whoami                Which org and user the active key resolves to
-glassray detect                Inspect the repo: framework, tracing, provider keys
-glassray connect <target>      Open the dashboard settings page for a source/integration in your
-                               browser: otlp · langsmith · langfuse · posthog · slack · github
-glassray instrument            Add the SDK + tags; shows the prompt (copied to clipboard) and
-                               offers to run Claude Code (headless, live progress; never
-                               commits/pushes — you review the diff). Flags: --run, --prompt-only
-glassray verify                The exit gate: poll until a real trace lands
-glassray status                Cloud account summary: sources, health, GitHub/Slack
-```
+**Local Coach.** `glassray start` runs the server; the data verbs — `traces`, `flows`, `evals`,
+`deviations`, `experiments`, `fix`, `runs`, `stats`, `usage` — talk to it on `127.0.0.1:5899` and
+print the API's JSON **verbatim**. The loop verbs (`pull` / `push` / `run` / `compare` / `check` /
+`link`) run the whole harness loop from the same binary.
 
-**Local Coach.** `start` runs the server; the data verbs talk to it on `127.0.0.1:5899` and
-print the API's JSON **verbatim**.
-
-```
-glassray start                 Run the local Coach server (installs @glassray/coach on demand)
-glassray traces                list · get <id> · tail
-glassray flows                 list · get · create · update · delete · audit · discover
-glassray evals                 list · get · create · update · delete · run
-glassray deviations            list · get <id> · resolve <id> · discover
-glassray deviations discover   Find recurring failures across recent traces (alias: discovery run)
-glassray experiments           list · get <id>
-glassray fix <deviationId>     Generate a fix doc for your coding agent
-glassray runs · stats · usage  Background runs · store rollups · LLM spend
-```
-
-The loop verbs — `pull` / `push` / `run` / `compare` / `check` / `link` — are handed to the
-coach CLI verbatim (they read and write repo-side files like `glassray.yaml` and fixtures
-directories), so the whole harness loop works from the one `glassray` binary too.
-
-**Manage**
-
-```
-glassray init                  Install the agent skill (.claude/ + .agents/)
-glassray mcp add|remove        Register the cloud MCP server in .mcp.json
-glassray token                 Print the stored org key on stdout (the `gh auth token` pattern)
-glassray doctor                Local and cloud health checks
-glassray upgrade               How to self-update
-```
+| Manage                     | What it does                                                    |
+| -------------------------- | -------------------------------------------------------------- |
+| `glassray init`            | Install the agent skill (`.claude/` + `.agents/`)              |
+| `glassray mcp add\|remove` | Register the cloud MCP server in `.mcp.json`                   |
+| `glassray token`           | Print the stored org key on stdout (the `gh auth token` pattern) |
+| `glassray doctor`          | Local and cloud health checks                                  |
+| `glassray upgrade`         | How to self-update                                             |
 
 ## Global flags and environment
 
@@ -106,13 +120,6 @@ Other environment variables: `GLASSRAY_AUTH_API` overrides the authentication-se
 `GLASSRAY_NO_UPDATE_CHECK` (also honors `NO_UPDATE_NOTIFIER` and `CI`) disables the npm update
 check.
 
-> **`GLASSRAY_TOKEN` vs `GLASSRAY_API_KEY`.** `GLASSRAY_TOKEN` is the CLI's own **org key** (it
-> carries `mcp:read` + `mcp:write` and resolves your account). It is deliberately **distinct**
-> from `GLASSRAY_API_KEY`, the SDK's per-source **ingest key** that the CLI can write into your
-> repo's env file (`.env.local` or `.env`, gitignored — `setup` shows it and asks first), so a
-> shell that exports one can never be mistaken for the other. The CLI _reads_ `GLASSRAY_TOKEN`; it
-> only ever _writes_ `GLASSRAY_API_KEY`.
-
 **Output discipline.** stdout is data (JSON and cards); stderr is status. Exit codes: `0` ok,
 `1` handled failure, `2` a dependency was unreachable. Non-TTY sessions never prompt, and every
 browser hand-off also prints its URL, so SSH and headless runs never get stuck.
@@ -122,6 +129,13 @@ browser hand-off also prints its URL, so SSH and headless runs never get stuck.
 The org key is stored at `~/.config/glassray/credentials.json` (file `0600`, directory `0700`,
 honoring `XDG_CONFIG_HOME`), keyed by endpoint so one machine can pair with several deployments.
 `glassray logout` clears it locally; rotate or revoke server-side in the dashboard.
+
+> **`GLASSRAY_TOKEN` vs `GLASSRAY_API_KEY`.** `GLASSRAY_TOKEN` is the CLI's own **org key** (it
+> carries `mcp:read` + `mcp:write` and resolves your account). It is deliberately **distinct**
+> from `GLASSRAY_API_KEY`, the SDK's per-source **ingest key** that the CLI can write into your
+> repo's env file (`.env.local` or `.env`, gitignored — `setup` shows it and asks first), so a
+> shell that exports one can never be mistaken for the other. The CLI _reads_ `GLASSRAY_TOKEN`; it
+> only ever _writes_ `GLASSRAY_API_KEY`.
 
 The key is **never written into `.mcp.json`**, since repos commonly commit that file. `glassray
 mcp add` writes the Authorization header as `Bearer ${GLASSRAY_TOKEN}` (your AI client expands
