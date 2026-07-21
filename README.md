@@ -1,9 +1,6 @@
 <div align="center">
 
-<img src="https://glassray.ai/docs/images/glassray_cover.jpeg" alt="Glassray" width="640" />
-
-<p><strong>One CLI for Glassray — cloud setup <em>and</em> local debugging with Coach.</strong><br/>
-The same commands work locally and in the cloud.</p>
+<img src=".github/assets/hero.png" alt="glassray cli — one CLI for Glassray: cloud setup and local debugging with Coach" width="820" />
 
 <p>
   <a href="#quickstart">Quickstart</a> ·
@@ -55,9 +52,9 @@ and cloud are the same commands in two environments.
 `setup` is a launcher, not a terminal orchestrator: it opens the browser wizard, polls until you
 finish, then does the one local step — wiring the SDK — and the verify gate.
 
-|            1 · Sign in            |                   2 · Wizard                    |          3 · Wire the SDK           |             4 · Verify ✓             |
-| :-------------------------------: | :---------------------------------------------: | :---------------------------------: | :---------------------------------: |
-| Browser device grant pairs this machine. | GitHub · traces · Slack in a browser, mirrored to your terminal. | The one local step — tags added in your code. | Poll until a real trace lands, then return. |
+<p align="center">
+  <img src=".github/assets/loop.png" alt="Sign in → Wizard → Wire the SDK → Verify" width="840" />
+</p>
 
 First-time onboarding needs a browser; re-runs skip the wizard once it's done, so _"just run it
 again"_ is the universal recovery, with no duplicate orgs or sources.
