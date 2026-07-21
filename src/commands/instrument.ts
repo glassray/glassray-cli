@@ -147,7 +147,7 @@ export const performInstrument = async (opts: {
   // On a TTY: default to handing over the prompt; offer to run Claude Code (headless).
   if (process.stdin.isTTY) {
     info("Time to add tracing to your code. I can run Claude Code for you, or give you the prompt to run yourself.");
-    if (await confirm("Run Claude Code now?", false)) {
+    if (await confirm("Run Claude Code now?")) {
       await runWithClaude(opts.prompt, opts.cwd, opts.json);
     } else {
       showPrompt(opts.prompt, opts.json);

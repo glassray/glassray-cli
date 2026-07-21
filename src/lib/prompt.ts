@@ -7,10 +7,12 @@
 import readline from "node:readline/promises";
 
 /**
- * Ask a yes/no question on stderr. `defaultYes` (default `true`) sets both the
- * `[Y/n]` vs `[y/N]` hint AND what an empty Enter means. Returns the boolean.
+ * Ask a yes/no question on stderr. `defaultYes` sets both the `[Y/n]` vs
+ * `[y/N]` hint AND what an empty Enter means. Defaults to `false` (`[y/N]`) so
+ * a bare Enter never takes an action — the CLI's one confirmation convention.
+ * Pass `true` only for a deliberately default-yes prompt. Returns the boolean.
  */
-export const confirm = async (question: string, defaultYes = true): Promise<boolean> => {
+export const confirm = async (question: string, defaultYes = false): Promise<boolean> => {
   const hint = defaultYes ? "[Y/n]" : "[y/N]";
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   try {
